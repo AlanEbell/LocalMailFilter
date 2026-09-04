@@ -115,17 +115,39 @@ accuracy lever: with it, an eight-case test suite covering cold outreach, a
 first-time customer, a supplier invoice, a brand-impersonation phish and a
 banking-detail-change scam classifies 8/8 correctly.
 
-### Optional: free VRAM defensively
+### Required: let the add-on talk to Ollama
+
+**Ollama rejects the add-on with HTTP 403 until you allow its origin.** Extension
+requests carry an `Origin: moz-extension://<uuid>` header, and Ollama refuses browser
+origins that are not allowlisted. Symptom: the queue fills with messages, nothing is
+ever classified, and the settings page reports the endpoint as unreachable. Confirm
+with `journalctl -u ollama | grep 403`.
 
 ```ini
-# /etc/systemd/system/ollama.service.d/10-keepalive.conf
+# /etc/systemd/system/ollama.service.d/10-local.conf
 [Service]
+Environment="OLLAMA_ORIGINS=moz-extension://*"
+# Also free VRAM between batches, for anything else talking to this instance.
 Environment="OLLAMA_KEEP_ALIVE=0"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
 ```
 
-The add-on unloads explicitly after every batch; this only guarantees the same for
-anything else that talks to your Ollama instance.
+```bash
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
+
+This does not expose the daemon to the network — Ollama still binds to localhost.
+
+## Troubleshooting
+
+**Folders appear but nothing is ever tagged.** The add-on classifies mail as it
+arrives; existing inbox mail is not touched until you ask. Open the report tab from
+the toolbar button and press **Scan last 24h**, or wait for new mail. If the queue is
+growing and no verdicts appear, check for the 403 above.
+
+**Nothing at all happens.** Confirm the endpoint from the settings page with **Test
+connection**. It distinguishes "unreachable", "connected but model not pulled", and
+success with the currently-loaded model listed.
 
 ## Tests
 
