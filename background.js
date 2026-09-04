@@ -1,0 +1,390 @@
+import { getSettings, setSettings, putVerdict, updateVerdict, getVerdicts,
+         enqueue, dequeue, getQueue, stats, pruneVerdicts } from "./lib/store.js";
+import { Ollama } from "./lib/ollama.js";
+import { buildPrompt, identityKeys, emailAddress } from "./lib/extract.js";
+import { withOwner } from "./lib/prompt.js";
+import * as AL from "./lib/allowlist.js";
+import { renderReport, sendReportEmail } from "./lib/report.js";
+
+const TAGS = {
+  business_spam: { key: "triagespam",  name: "Triage: Business Spam",   color: "#E5A50A" },
+  phishing:      { key: "triagephish", name: "Triage: Possible Phishing", color: "#E01B24" },
+};
+
+const log = (...a) => console.log("[triage]", ...a);
+
+// ---- folder plumbing ---------------------------------------------------
+
+async function watchedAccounts() {
+  const s = await getSettings();
+  const accts = await browser.accounts.list(false);
+  const usable = accts.filter((a) => a.type === "imap" || a.type === "pop3");
+  if (!s.watchedAccounts.length) return usable;
+  return usable.filter((a) => s.watchedAccounts.includes(a.id));
+}
+
+async function inboxOf(account) {
+  const folders = await browser.folders.query({ accountId: account.id, specialUse: ["inbox"] });
+  return folders[0] || null;
+}
+
+// Find (or create) the Look At Later folder as a child of INBOX, so it syncs over
+// IMAP and the sorted mail also disappears from the inbox on your phone.
+async function triageFolderOf(account, create = true) {
+  const s = await getSettings();
+  const inbox = await inboxOf(account);
+  if (!inbox) return null;
+  const subs = await browser.folders.getSubFolders(inbox.id, false);
+  const found = subs.find((f) => f.name === s.folderName);
+  if (found || !create) return found || null;
+  log("creating folder", s.folderName, "in", account.name);
+  return browser.folders.create(inbox.id, s.folderName);
+}
+
+async function ensureTags() {
+  const existing = await browser.messages.tags.list();
+  for (const t of Object.values(TAGS)) {
+    if (!existing.find((e) => e.key === t.key)) {
+      await browser.messages.tags.create(t.key, t.name, t.color);
+      log("created tag", t.name);
+    }
+  }
+}
+
+// ---- classification ----------------------------------------------------
+
+async function drainQueue({ manual = false } = {}) {
+  const s = await getSettings();
+  const queue = await getQueue();
+  if (!queue.length) return { processed: 0, skipped: "empty" };
+
+  const oll = new Ollama(s.endpoint, s.model);
+  const health = await oll.health();
+  if (!health) {
+    log("ollama unreachable — leaving", queue.length, "queued");
+    if (manual) notify("Ollama unreachable", `${queue.length} message(s) still queued. Start the service and try again.`);
+    return { processed: 0, skipped: "ollama-down" };
+  }
+  if (!health.hasModel) {
+    notify("Model missing", `${s.model} is not pulled. Run: ollama pull ${s.model}`);
+    return { processed: 0, skipped: "model-missing" };
+  }
+
+  const vramBefore = await oll.loaded();
+  const shots = await AL.fewShotBlock();
+  const sys = withOwner(s.ownerContext) + shots;
+  const done = [];
+  const counts = { business_spam: 0, phishing: 0, legitimate: 0, allowlisted: 0 };
+
+  try {
+    for (const item of queue) {
+      try {
+        const hdr = await browser.messages.get(item.id).catch(() => null);
+        if (!hdr) { done.push(item.headerMessageId); continue; }
+        const full = await browser.messages.getFull(item.id);
+        const keys = identityKeys(hdr, full);
+
+        // Allow-list short-circuit: known-good senders never reach the model at all.
+        const hit = await AL.matches(keys);
+        if (hit) {
+          const probe = { category: "legitimate", confidence: 1 };
+          if (AL.suppresses(probe)) {
+            counts.allowlisted++;
+            await putVerdict({
+              headerMessageId: item.headerMessageId, ts: Date.now(),
+              account: item.account, from: emailAddress(hdr.author), subject: hdr.subject,
+              category: "legitimate", confidence: 1, reason: `allow-listed (${hit})`,
+              evidence: [], action: "skipped-allowlist",
+            });
+            done.push(item.headerMessageId);
+            continue;
+          }
+        }
+
+        const text = buildPrompt(hdr, full, s.bodyChars);
+        const v = await oll.classify(sys, text);
+        counts[v.category] = (counts[v.category] || 0) + 1;
+
+        // An allow-listed sender still gets flagged for confident phishing.
+        if (hit && AL.suppresses(v)) {
+          v.category = "legitimate";
+          v.reason = `allow-listed (${hit}); model said otherwise but sender is trusted`;
+        }
+
+        const action = await applyVerdict(item, hdr, v, s);
+        await putVerdict({
+          headerMessageId: item.headerMessageId, ts: Date.now(),
+          account: item.account, from: emailAddress(hdr.author), subject: hdr.subject,
+          category: v.category, confidence: v.confidence, reason: v.reason,
+          evidence: v.evidence, keys, action,
+        });
+        done.push(item.headerMessageId);
+      } catch (e) {
+        log("classify failed", item.headerMessageId, e.message);
+        done.push(item.headerMessageId); // don't wedge the queue on one bad message
+      }
+    }
+  } finally {
+    // Always release the GPU, even if the loop threw.
+    await oll.unload();
+  }
+
+  await dequeue(done);
+  const vramAfter = await oll.loaded();
+  log("batch done", counts, "vram released:", vramAfter.length === 0);
+
+  const flagged = counts.business_spam + counts.phishing;
+  if (flagged && s.notifyOnSort) {
+    const verb = s.mode === "shadow" ? "Tagged" : "Sorted";
+    notify(`${verb} ${flagged} message${flagged === 1 ? "" : "s"}`,
+      `${counts.business_spam} business spam, ${counts.phishing} possible phishing` +
+      (s.mode === "shadow" ? " — shadow mode, nothing moved." : ""));
+  }
+  await maybeOfferGraduation();
+  return { processed: done.length, counts, vramBefore, vramAfter };
+}
+
+// Decide what physically happens to a message. Nothing here can delete: the add-on
+// does not hold the messagesDelete permission.
+async function applyVerdict(item, hdr, v, s) {
+  if (v.category === "legitimate") return "left";
+
+  // Tag in every mode — the tag is the audit trail even after a move.
+  const tag = TAGS[v.category];
+  const tags = [...new Set([...(hdr.tags || []), tag.key])];
+  await browser.messages.update(item.id, { tags }).catch((e) => log("tag failed", e.message));
+
+  if (s.mode === "shadow") return "tagged";
+  if (s.mode === "confident" && !isClearCut(v)) return "tagged-unsure";
+
+  const acct = (await browser.accounts.list(false)).find((a) => a.id === item.account);
+  const dest = acct ? await triageFolderOf(acct) : null;
+  if (!dest) return "tagged-nofolder";
+  await browser.messages.move([item.id], dest.id);
+  return "moved";
+}
+
+// The model's self-reported confidence clusters near 0.95 regardless of difficulty,
+// so "confident mode" gates on corroborating evidence instead of trusting the number.
+function isClearCut(v) {
+  const cited = (v.evidence || []).filter((e) => e && e.length > 15).length;
+  if (v.category === "phishing") return cited >= 2 && v.confidence >= 0.8;
+  return cited >= 2 && v.confidence >= 0.85;
+}
+
+// ---- events ------------------------------------------------------------
+
+browser.messages.onNewMailReceived.addListener(async (folder, messages) => {
+  const accts = await watchedAccounts();
+  if (!accts.find((a) => a.id === folder.accountId)) return;
+  if (folder.specialUse && !folder.specialUse.includes("inbox")) return;
+  const items = messages.messages.map((m) => ({
+    id: m.id, headerMessageId: m.headerMessageId, account: folder.accountId,
+  }));
+  const n = await enqueue(items);
+  if (n) { log("queued", n, "from", folder.accountId); drainQueue(); }
+});
+
+// A rescue: you moved something OUT of Look At Later. That is a false positive,
+// so allow-list the sender and record it as a counter-example for the prompt.
+browser.messages.onMoved.addListener(async (originals, moved) => {
+  const s = await getSettings();
+  for (let i = 0; i < originals.messages.length; i++) {
+    const before = originals.messages[i];
+    const after = moved.messages[i];
+    if (!before || !after) continue;
+    const src = before.folder?.name, dst = after.folder?.name;
+    if (src !== s.folderName || dst === s.folderName) continue;
+    if (after.folder?.specialUse?.some((u) => ["trash", "junk"].includes(u))) continue; // not a rescue
+    await learnRescue(after.id, before.headerMessageId, "moved back manually");
+  }
+});
+
+async function learnRescue(msgId, headerMessageId, why) {
+  try {
+    const hdr = await browser.messages.get(msgId);
+    const full = await browser.messages.getFull(msgId);
+    const keys = identityKeys(hdr, full);
+    const rec = (await getVerdicts())[headerMessageId];
+    const key = await AL.allow(keys, { reason: why, sample: hdr.subject });
+    await AL.addCorrection({
+      kind: "false_positive", was: rec?.category || "flagged",
+      from: emailAddress(hdr.author), subject: hdr.subject,
+    });
+    await updateVerdict(headerMessageId, { userVerdict: "wrong", rescuedAt: Date.now(), allowKey: key });
+    // Clear our tags so the message looks untouched again.
+    const tags = (hdr.tags || []).filter((t) => t !== TAGS.business_spam.key && t !== TAGS.phishing.key);
+    await browser.messages.update(msgId, { tags });
+    log("rescued -> allow-listed", key);
+  } catch (e) { log("learnRescue failed", e.message); }
+}
+
+// You dragging something INTO Look At Later is a miss the model should learn from.
+browser.messages.onMoved.addListener(async (originals, moved) => {
+  const s = await getSettings();
+  for (let i = 0; i < moved.messages.length; i++) {
+    const after = moved.messages[i], before = originals.messages[i];
+    if (!after || after.folder?.name !== s.folderName) continue;
+    if (before?.folder?.name === s.folderName) continue;
+    const known = (await getVerdicts())[after.headerMessageId];
+    if (known?.action === "moved") continue; // we moved it, not the user
+    await AL.addCorrection({
+      kind: "false_negative", should: "business_spam",
+      from: emailAddress(after.author), subject: after.subject,
+    });
+    log("learned miss:", after.subject);
+  }
+});
+
+// ---- reconciliation ----------------------------------------------------
+// onMoved only fires for moves Thunderbird performs. A rescue done on your phone
+// arrives as a silent IMAP change, so periodically check what left the folder.
+
+async function reconcile() {
+  const s = await getSettings();
+  const verdicts = await getVerdicts();
+  const expected = Object.entries(verdicts).filter(([, r]) => r.action === "moved" && !r.rescuedAt);
+  if (!expected.length) return 0;
+
+  const present = new Set();
+  for (const acct of await watchedAccounts()) {
+    const f = await triageFolderOf(acct, false);
+    if (!f) continue;
+    let page = await browser.messages.query({ folderId: f.id, autoPaginationTimeout: 0 });
+    while (page) {
+      for (const m of page.messages) present.add(m.headerMessageId);
+      page = page.id ? await browser.messages.continueList(page.id).catch(() => null) : null;
+      if (page && !page.messages.length) break;
+    }
+  }
+
+  let learned = 0;
+  for (const [hmid, rec] of expected) {
+    if (present.has(hmid)) continue;
+    // Gone from the folder and we did not move it out — you rescued it elsewhere.
+    await updateVerdict(hmid, { userVerdict: "wrong", rescuedAt: Date.now(), rescuedVia: "reconcile" });
+    await AL.addCorrection({ kind: "false_positive", was: rec.category, from: rec.from, subject: rec.subject });
+    if (rec.keys?.length) await AL.allow(rec.keys, { reason: "rescued on another device", sample: rec.subject });
+    learned++;
+  }
+  if (learned) log("reconcile: learned", learned, "off-device rescue(s)");
+  return learned;
+}
+
+// ---- graduation --------------------------------------------------------
+// Only ever a suggestion. The add-on never changes its own mode.
+
+async function maybeOfferGraduation() {
+  const s = await getSettings();
+  if (s.mode !== "shadow" || s.graduationOffered) return;
+  const st = await stats();
+  if (st.reviewed < s.graduateMinReviewed) return;
+  if (st.precision === null || st.precision < s.graduateMinPrecision) return;
+  await setSettings({ graduationOffered: true });
+  notify("Ready to graduate from shadow mode",
+    `${(st.precision * 100).toFixed(1)}% precision over ${st.reviewed} reviewed. ` +
+    `Open Mail Triage options to enable moving.`);
+}
+
+function notify(title, message) {
+  browser.notifications.create({ type: "basic", title, message,
+    iconUrl: browser.runtime.getURL("icons/icon-64.png") }).catch(() => {});
+}
+
+// ---- daily report ------------------------------------------------------
+
+async function dailyReport(force = false) {
+  const s = await getSettings();
+  const today = new Date().toISOString().slice(0, 10);
+  if (!force && s.lastReportDate === today) return;
+  const html = await renderReport(today);
+  if (s.emailReport && s.reportEmail) await sendReportEmail(s, today, html);
+  await setSettings({ lastReportDate: today });
+  log("daily report sent for", today);
+}
+
+// ---- wiring ------------------------------------------------------------
+
+browser.action.onClicked.addListener(() => {
+  browser.tabs.create({ url: browser.runtime.getURL("ui/report.html") });
+});
+
+browser.runtime.onMessage.addListener(async (msg) => {
+  switch (msg.cmd) {
+    case "sortNow":    return drainQueue({ manual: true });
+    case "scanInbox":  return scanInboxes(msg.days || 1);
+    case "reconcile":  return reconcile();
+    case "report":     return dailyReport(true);
+    case "stats":      return stats();
+    case "health":     { const s = await getSettings();
+                         const o = new Ollama(s.endpoint, s.model);
+                         return { health: await o.health(), loaded: await o.loaded() }; }
+    case "rescue":     return learnRescue(msg.id, msg.headerMessageId, "marked Wrong in report");
+    case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
+    case "sweepBacklog": return sweepBacklog();
+  }
+});
+
+// Pull in inbox mail that arrived while Thunderbird was closed or Ollama was down.
+async function scanInboxes(days = 1) {
+  const since = new Date(Date.now() - days * 86400000);
+  const verdicts = await getVerdicts();
+  let queued = 0;
+  for (const acct of await watchedAccounts()) {
+    const inbox = await inboxOf(acct);
+    if (!inbox) continue;
+    const page = await browser.messages.query({ folderId: inbox.id, fromDate: since });
+    const items = page.messages
+      .filter((m) => !verdicts[m.headerMessageId])
+      .map((m) => ({ id: m.id, headerMessageId: m.headerMessageId, account: acct.id }));
+    queued += await enqueue(items);
+  }
+  if (queued) drainQueue();
+  return { queued };
+}
+
+// On graduating to full mode: move everything still tagged that you did not mark Wrong.
+async function sweepBacklog() {
+  const s = await getSettings();
+  const verdicts = await getVerdicts();
+  let moved = 0;
+  for (const [hmid, rec] of Object.entries(verdicts)) {
+    if (!String(rec.action || "").startsWith("tagged")) continue;
+    if (rec.userVerdict === "wrong") continue;
+    const found = await browser.messages.query({ headerMessageId: hmid });
+    const m = found.messages[0];
+    if (!m) continue;
+    const acct = (await browser.accounts.list(false)).find((a) => a.id === rec.account);
+    const dest = acct ? await triageFolderOf(acct) : null;
+    if (!dest) continue;
+    await browser.messages.move([m.id], dest.id);
+    await updateVerdict(hmid, { action: "moved", sweptAt: Date.now() });
+    moved++;
+  }
+  return { moved };
+}
+
+async function init() {
+  await ensureTags();
+  for (const a of await watchedAccounts()) await triageFolderOf(a).catch((e) => log("folder", a.name, e.message));
+  browser.alarms.create("drain",     { periodInMinutes: 10 });
+  browser.alarms.create("reconcile", { periodInMinutes: 30 });
+  browser.alarms.create("report",    { periodInMinutes: 30 });
+  browser.alarms.create("prune",     { periodInMinutes: 1440 });
+  log("initialised");
+}
+
+browser.alarms.onAlarm.addListener(async (a) => {
+  const s = await getSettings();
+  if (a.name === "drain")     return void drainQueue();
+  if (a.name === "reconcile") return void reconcile();
+  if (a.name === "prune")     return void pruneVerdicts(90);
+  if (a.name === "report") {
+    const now = new Date();
+    if (now.getHours() >= s.reportHour) await dailyReport();
+  }
+});
+
+browser.runtime.onInstalled.addListener(init);
+browser.runtime.onStartup.addListener(init);
+init();

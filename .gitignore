@@ -1,0 +1,7 @@
+*.xpi
+node_modules/
+.DS_Store
+*.log
+# Local experiments and anything holding personal mailbox detail
+local/
+*.local.js

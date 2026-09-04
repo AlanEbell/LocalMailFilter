@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Mail Triage — Daily Report</title>
+<style>body{font:14px system-ui,sans-serif;margin:0}#bar{padding:12px 24px;border-bottom:1px solid #ddd;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#bar button,#bar select,#bar input{font:inherit;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer}
+@media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#e8e8e8}#bar{border-color:#333}#bar button,#bar select,#bar input{background:#252528;color:#e8e8e8;border-color:#444}}
+#status{color:#888;font-size:13px}</style>
+<div id="bar">
+  <label>Day <input type="date" id="day"></label>
+  <button id="sort">Sort now</button>
+  <button id="scan">Scan last 24h</button>
+  <button id="recon">Check for rescues</button>
+  <button id="opts">Settings</button>
+  <span id="status"></span>
+</div>
+<div id="out"></div>
+<script type="module" src="report.js"></script>

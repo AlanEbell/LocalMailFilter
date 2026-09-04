@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Mail Triage — Settings</title>
+<style>
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#fff;--mut:#666;--line:#e0e0e0;--card:#f7f7f8}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e8e8;--bg:#1c1c1e;--mut:#9a9a9a;--line:#333;--card:#252528}}
+body{font:14px/1.55 system-ui,sans-serif;color:var(--fg);background:var(--bg);max-width:720px;margin:0 auto;padding:28px}
+h1{font-size:20px;margin:0 0 20px}h2{font-size:13px;margin:26px 0 10px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+.row{display:flex;gap:12px;align-items:flex-start;margin-bottom:14px}
+label.k{min-width:150px;padding-top:4px}
+input,select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+input[type=number]{width:80px}input[type=text]{width:280px}
+.hint{color:var(--mut);font-size:12.5px;margin-top:4px;max-width:450px}
+button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--fg);cursor:pointer}
+button.primary{background:#2f6feb;color:#fff;border-color:#2f6feb}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.stat{display:flex;gap:28px;flex-wrap:wrap}.stat div span{display:block;color:var(--mut);font-size:12px}.stat div b{font-size:19px}
+table{border-collapse:collapse;width:100%;font-size:13px}td{padding:6px 4px;border-bottom:1px solid var(--line)}
+code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
+.ok{color:#2a9d3f}.bad{color:#d32}#health{font-size:13px}
+.grad{border-left:3px solid #2a9d3f;padding:10px 14px;background:var(--card);border-radius:4px;font-size:13px}
+</style>
+<h1>Mail Triage</h1>
+
+<div class="card">
+  <div class="stat" id="stats"></div>
+  <div id="grad" style="margin-top:14px"></div>
+</div>
+
+<h2>Sorting mode</h2>
+<div class="row">
+  <label class="k">Mode</label>
+  <div>
+    <select id="mode">
+      <option value="shadow">Shadow — tag only, never move</option>
+      <option value="confident">Confident — move clear-cut calls only</option>
+      <option value="full">Full — move everything flagged</option>
+    </select>
+    <div class="hint">You control this at all times. The add-on never changes it by itself — at most it suggests, once, that the numbers look good. Nothing is ever deleted in any mode.</div>
+  </div>
+</div>
+<div class="row"><label class="k"></label><div><button id="sweep">Move tagged backlog now</button>
+  <div class="hint">Moves everything tagged during shadow running that you did not mark Wrong. Use this after switching to Full.</div></div></div>
+
+<h2>Model</h2>
+<div class="row"><label class="k">Endpoint</label><div><input type="text" id="endpoint"><div class="hint">Local Ollama. The model is unloaded from the GPU after every batch, so idle VRAM use is zero.</div></div></div>
+<div class="row"><label class="k">Model</label><input type="text" id="model"></div>
+<div class="row"><label class="k">Body characters</label><div><input type="number" id="bodyChars"><div class="hint">How much of the message body the model sees, in addition to headers and link analysis.</div></div></div>
+<div class="row"><label class="k"></label><div><button id="test">Test connection</button> <span id="health"></span></div></div>
+
+<h2>About you</h2>
+<div class="row"><label class="k">Owner context</label><div>
+  <textarea id="ownerContext" rows="7" style="width:440px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></textarea>
+  <div class="hint">Given to the model so it can tell your organisations and customers from strangers selling to you. Stored locally only. Being specific here is the single biggest accuracy win — name your employer, clubs, and whether any address is a public sales inbox.</div></div></div>
+
+<h2>Folder and accounts</h2>
+<div class="row"><label class="k">Folder name</label><div><input type="text" id="folderName"><div class="hint">Created under each account's Inbox so it syncs over IMAP and the mail also leaves your phone's inbox.</div></div></div>
+<div class="row"><label class="k">Accounts</label><div id="accounts"><div class="hint">loading…</div></div></div>
+
+<h2>Daily report</h2>
+<div class="row"><label class="k">Email report to</label><input type="text" id="reportEmail"></div>
+<div class="row"><label class="k">Send after hour</label><input type="number" id="reportHour" min="0" max="23"></div>
+<div class="row"><label class="k">Email the report</label><input type="checkbox" id="emailReport"></div>
+<div class="row"><label class="k">Desktop notifications</label><input type="checkbox" id="notifyOnSort"></div>
+<div class="row"><label class="k"></label><div><button id="reportNow">Send report now</button> <button id="openReport">Open report tab</button> <span id="rstatus" class="hint"></span></div></div>
+
+<h2>Allow-list</h2>
+<div class="hint" style="margin-bottom:10px">Senders you rescued. A match skips the model entirely — except for confident phishing, which is still flagged even for trusted senders, since impersonation is how phishing works.</div>
+<table id="allow"></table>
+
+<div class="row" style="margin-top:26px"><label class="k"></label><div><button class="primary" id="save">Save settings</button> <span id="saved" class="hint"></span></div></div>
+<script type="module" src="options.js"></script>
