@@ -3,6 +3,7 @@ import { getSettings, setSettings, putVerdict, updateVerdict, getVerdicts,
 import { Ollama } from "./lib/ollama.js";
 import { buildPrompt, identityKeys, emailAddress } from "./lib/extract.js";
 import { withOwner } from "./lib/prompt.js";
+import { buildOwnerBlock } from "./lib/owner.js";
 import * as AL from "./lib/allowlist.js";
 import { renderReport, sendReportEmail } from "./lib/report.js";
 
@@ -72,7 +73,7 @@ async function drainQueue({ manual = false } = {}) {
 
   const vramBefore = await oll.loaded();
   const shots = await AL.fewShotBlock();
-  const sys = withOwner(s.ownerContext) + shots;
+  const sys = withOwner(await buildOwnerBlock(s.ownerNotes)) + shots;
   const done = [];
   const counts = { business_spam: 0, phishing: 0, legitimate: 0, allowlisted: 0 };
 

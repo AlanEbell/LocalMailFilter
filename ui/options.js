@@ -1,13 +1,22 @@
 import { getSettings, setSettings, stats } from "../lib/store.js";
 import { getAllow, revoke } from "../lib/allowlist.js";
+import { buildOwnerBlock, suggestNotes } from "../lib/owner.js";
 
 const $ = (s) => document.querySelector(s);
-const FIELDS = ["mode","endpoint","model","bodyChars","folderName","reportEmail","reportHour","ownerContext"];
+const FIELDS = ["mode","endpoint","model","bodyChars","folderName","reportEmail","reportHour","ownerNotes"];
 const CHECKS = ["emailReport","notifyOnSort"];
 
 async function load() {
   const s = await getSettings();
   for (const f of FIELDS) $("#" + f).value = s[f];
+
+  // Nothing here should ask for something Thunderbird already knows. Default the
+  // report recipient to the default account's own address.
+  if (!s.reportEmail) {
+    const accts = await browser.accounts.list(false);
+    const first = accts.flatMap((a) => a.identities || []).find((i) => i.email);
+    if (first) $("#reportEmail").value = first.email;
+  }
   for (const c of CHECKS) $("#" + c).checked = !!s[c];
 
   const accts = (await browser.accounts.list(false)).filter((a) => a.type === "imap" || a.type === "pop3");
@@ -15,6 +24,8 @@ async function load() {
     const on = !s.watchedAccounts.length || s.watchedAccounts.includes(a.id);
     return `<div><label><input type="checkbox" class="acct" value="${a.id}" ${on ? "checked" : ""}> ${a.name}</label></div>`;
   }).join("") + `<div class="hint">Unchecking all is treated as "watch all".</div>`;
+
+  $("#derived").textContent = await buildOwnerBlock("");
 
   const st = await stats();
   const pct = st.precision === null ? "—" : (st.precision * 100).toFixed(1) + "%";
@@ -58,7 +69,13 @@ $("#save").addEventListener("click", async () => {
   await setSettings(patch);
   $("#saved").textContent = "saved";
   setTimeout(() => ($("#saved").textContent = ""), 1800);
-  load();
+  $("#suggest").addEventListener("click", async () => {
+  const cur = $("#ownerNotes").value.trim();
+  const sug = await suggestNotes();
+  $("#ownerNotes").value = cur ? cur + "\n" + sug : sug;
+  $("#ownerNotes").focus();
+});
+load();
 });
 
 $("#test").addEventListener("click", async () => {

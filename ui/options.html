@@ -49,9 +49,13 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 <div class="row"><label class="k"></label><div><button id="test">Test connection</button> <span id="health"></span></div></div>
 
 <h2>About you</h2>
-<div class="row"><label class="k">Owner context</label><div>
-  <textarea id="ownerContext" rows="7" style="width:440px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></textarea>
-  <div class="hint">Given to the model so it can tell your organisations and customers from strangers selling to you. Stored locally only. Being specific here is the single biggest accuracy win — name your employer, clubs, and whether any address is a public sales inbox.</div></div></div>
+<div class="row"><label class="k">Read from Thunderbird</label><div>
+  <pre id="derived" style="margin:0;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;font:12.5px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-width:450px"></pre>
+  <div class="hint">Taken from your account settings automatically. Addresses like <code>sales@</code> are recognised as public inboxes, so strangers asking about products are treated as customers rather than cold outreach.</div></div></div>
+<div class="row"><label class="k">What these are</label><div>
+  <textarea id="ownerNotes" rows="5" style="width:440px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)"></textarea>
+  <div class="hint">The one thing nothing on this machine can work out: what each domain <em>means</em>. One line each — a club, an employer, your own business. Stored locally, never in the repository.</div>
+  <div style="margin-top:6px"><button id="suggest">Fill in my domains</button></div></div></div>
 
 <h2>Folder and accounts</h2>
 <div class="row"><label class="k">Folder name</label><div><input type="text" id="folderName"><div class="hint">Created under each account's Inbox so it syncs over IMAP and the mail also leaves your phone's inbox.</div></div></div>

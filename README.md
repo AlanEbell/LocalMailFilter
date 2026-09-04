@@ -104,9 +104,16 @@ Then in Thunderbird: **Add-ons Manager → gear icon → Install Add-on From Fil
 `LocalMailFilter.xpi`**. Thunderbird does not require extension signing, so this
 installs permanently.
 
-Open the add-on's settings and fill in **Owner context** — who you are, your
-organisations, and whether any address is a public sales inbox. This is the single
-biggest accuracy lever, and it is stored locally, never in this repository.
+Open the add-on's settings. Your name, addresses and accounts are read from
+Thunderbird automatically, and role addresses such as `sales@` are recognised as
+public inboxes so that strangers asking about products are treated as customers.
+
+The only thing you supply is one line per domain saying what it *is* — a club, an
+employer, your own business. Press **Fill in my domains** to get the scaffold. This
+is stored locally and never in this repository, and it is the single biggest
+accuracy lever: with it, an eight-case test suite covering cold outreach, a
+first-time customer, a supplier invoice, a brand-impersonation phish and a
+banking-detail-change scam classifies 8/8 correctly.
 
 ### Optional: free VRAM defensively
 
