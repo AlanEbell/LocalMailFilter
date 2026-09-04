@@ -15,8 +15,8 @@ eq("dkim from header.d",
   dkimDomain(msg({"authentication-results":["mx.google.com; dkim=pass header.d=chase.com header.i=@chase.com; spf=pass"]})),
   "chase.com");
 eq("dkim from bare d=",
-  dkimDomain(msg({"authentication-results":["dkim=pass d=nemba.org; spf=pass"]})),
-  "nemba.org");
+  dkimDomain(msg({"authentication-results":["dkim=pass d=club.example; spf=pass"]})),
+  "club.example");
 eq("dkim fail yields nothing",
   dkimDomain(msg({"authentication-results":["dkim=fail header.d=evil.com; spf=fail"]})),
   "");

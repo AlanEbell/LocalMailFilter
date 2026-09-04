@@ -127,6 +127,15 @@ Environment="OLLAMA_MAX_LOADED_MODELS=1"
 The add-on unloads explicitly after every batch; this only guarantees the same for
 anything else that talks to your Ollama instance.
 
+## Tests
+
+```bash
+./test/run.sh      # header parsing, DKIM identity keys, prompt assembly
+./test/audit.sh    # fails if personal mailbox detail reaches the repository
+```
+
+Neither needs Thunderbird or Ollama.
+
 ## Layout
 
 ```
@@ -138,7 +147,9 @@ lib/extract.js     header/body/link extraction and DKIM identity keys
 lib/allowlist.js   allow-list, suppression rules, few-shot corrections
 lib/store.js       settings, verdict log, work queue, accuracy stats
 lib/report.js      daily report rendering and mailing
+lib/owner.js       derives name, addresses and role inboxes from Thunderbird
 ui/                settings page and interactive report tab
+test/              unit tests and the personal-data audit
 ```
 
 ## License
