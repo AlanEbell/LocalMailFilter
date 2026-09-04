@@ -27,6 +27,13 @@ async function load() {
 
   $("#derived").textContent = await buildOwnerBlock("");
 
+  browser.runtime.sendMessage({ cmd: "folders" }).then((fs) => {
+    $("#folders").innerHTML = (fs || []).map((f) =>
+      f.ok ? `<div><span class="ok">✓</span> ${f.account} <code>${f.path || ""}</code></div>`
+           : `<div><span class="bad">✗</span> ${f.account} — no folder; tag-only</div>`
+    ).join("") || '<span class="hint">no accounts watched</span>';
+  });
+
   const st = await stats();
   const pct = st.precision === null ? "—" : (st.precision * 100).toFixed(1) + "%";
   $("#stats").innerHTML = `
@@ -75,6 +82,12 @@ $("#save").addEventListener("click", async () => {
   $("#ownerNotes").value = cur ? cur + "\n" + sug : sug;
   $("#ownerNotes").focus();
 });
+$("#mkfolders").addEventListener("click", async () => {
+  $("#folders").innerHTML = '<span class="hint">creating…</span>';
+  await browser.runtime.sendMessage({ cmd: "makeFolders" });
+  load();
+});
+
 $("#export").addEventListener("click", async () => {
   const data = await exportAll();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

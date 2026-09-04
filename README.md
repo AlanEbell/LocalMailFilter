@@ -186,6 +186,13 @@ arrives; existing inbox mail is not touched until you ask. Open the report tab f
 the toolbar button and press **Scan last 24h**, or wait for new mail. If the queue is
 growing and no verdicts appear, check for the 403 above.
 
+**One account has no Look At Later folder.** Some providers refuse subfolders of
+INBOX and keep every folder at the account root — iCloud does exactly this, which is
+why its own folders sit beside INBOX rather than inside it. Folder creation falls back
+to the account root automatically. The settings page lists the destination folder for
+each account, with a button to retry any that failed. An account without a folder is
+tagged but never moved, in any mode.
+
 **It reclassified everything after I reinstalled it.** The storage area was replaced
 along with the add-on's internal UUID, so it had no record of having seen that mail.
 Upgrade in place instead of uninstalling, and keep a backup export.

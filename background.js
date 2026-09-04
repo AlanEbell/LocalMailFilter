@@ -37,17 +37,66 @@ async function inboxOf(account) {
   return folders[0] || null;
 }
 
-// Find (or create) the Look At Later folder as a child of INBOX, so it syncs over
-// IMAP and the sorted mail also disappears from the inbox on your phone.
+async function rootOf(account) {
+  try {
+    const full = await browser.accounts.get(account.id, false);
+    return full?.rootFolder || null;
+  } catch { return null; }
+}
+
+// Find (or create) the Look At Later folder. A child of INBOX is preferred, so it
+// syncs over IMAP and the sorted mail also leaves the inbox on your phone.
+//
+// Not every provider allows that. iCloud in particular refuses subfolders of INBOX
+// and keeps every folder at the account root, so creation there must fall back to
+// the root rather than leaving the account permanently without a destination.
 async function triageFolderOf(account, create = true) {
   const s = await getSettings();
   const inbox = await inboxOf(account);
-  if (!inbox) return null;
-  const subs = await browser.folders.getSubFolders(inbox.id, false);
-  const found = subs.find((f) => f.name === s.folderName);
-  if (found || !create) return found || null;
-  log("creating folder", s.folderName, "in", account.name);
-  return browser.folders.create(inbox.id, s.folderName);
+
+  // An existing folder may be in either place, including one you moved yourself.
+  for (const parent of [inbox, await rootOf(account)]) {
+    if (!parent) continue;
+    try {
+      const subs = await browser.folders.getSubFolders(parent.id, false);
+      const found = subs.find((f) => f.name === s.folderName);
+      if (found) return found;
+    } catch { /* keep looking */ }
+  }
+  if (!create) return null;
+
+  if (inbox) {
+    try {
+      const f = await browser.folders.create(inbox.id, s.folderName);
+      log("created", s.folderName, "under INBOX in", account.name);
+      return f;
+    } catch (e) {
+      log(`${account.name}: server refused a subfolder of INBOX (${e.message}); trying account root`);
+    }
+  }
+
+  const root = await rootOf(account);
+  if (root) {
+    try {
+      const f = await browser.folders.create(root.id, s.folderName);
+      log("created", s.folderName, "at account root in", account.name);
+      return f;
+    } catch (e) {
+      log(`${account.name}: could not create ${s.folderName} anywhere — ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// Which accounts currently lack a destination folder. Surfaced in the settings page
+// so a failure is visible rather than buried in a log nobody reads.
+async function foldersStatus() {
+  const out = [];
+  for (const a of await watchedAccounts()) {
+    const f = await triageFolderOf(a, false);
+    out.push({ account: a.name, ok: !!f, path: f?.path || null });
+  }
+  return out;
 }
 
 async function ensureTags() {
@@ -200,7 +249,10 @@ async function applyVerdict(item, hdr, v, s) {
 
   const acct = (await browser.accounts.list(false)).find((a) => a.id === item.account);
   const dest = acct ? await triageFolderOf(acct) : null;
-  if (!dest) return "tagged-nofolder";
+  if (!dest) {
+    log(`no destination folder for account ${item.account}; message tagged only`);
+    return "tagged-nofolder";
+  }
   await browser.messages.move([item.id], dest.id);
   return "moved";
 }
@@ -363,6 +415,11 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "rescue":     return learnRescue(msg.id, msg.headerMessageId, "marked Wrong in report");
     case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
     case "sweepBacklog": return sweepBacklog();
+    case "folders":    return foldersStatus();
+    case "makeFolders": {
+      for (const a of await watchedAccounts()) await triageFolderOf(a, true).catch(() => null);
+      return foldersStatus();
+    }
   }
 });
 
@@ -407,7 +464,16 @@ async function sweepBacklog() {
 
 async function init() {
   await ensureTags();
-  for (const a of await watchedAccounts()) await triageFolderOf(a).catch((e) => log("folder", a.name, e.message));
+  const missing = [];
+  for (const a of await watchedAccounts()) {
+    const f = await triageFolderOf(a).catch((e) => { log("folder", a.name, e.message); return null; });
+    if (!f) missing.push(a.name);
+  }
+  if (missing.length) {
+    notify("Mail Triage: no destination folder",
+      `Could not create "${(await getSettings()).folderName}" for: ${missing.join(", ")}. ` +
+      `Those accounts will be tagged but never moved.`);
+  }
   browser.alarms.create("drain",     { periodInMinutes: 10 });
   browser.alarms.create("reconcile", { periodInMinutes: 30 });
   browser.alarms.create("report",    { periodInMinutes: 30 });
