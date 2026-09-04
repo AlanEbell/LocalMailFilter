@@ -72,5 +72,13 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 <div class="hint" style="margin-bottom:10px">Senders you rescued. A match skips the model entirely — except for confident phishing, which is still flagged even for trusted senders, since impersonation is how phishing works.</div>
 <table id="allow"></table>
 
+<h2>Backup</h2>
+<div class="hint" style="margin-bottom:10px">Uninstalling the add-on discards the allow-list and everything it has learned — Thunderbird gives a reinstalled add-on a fresh, empty storage area. Installing a newer version over the top keeps it. Export before you uninstall.</div>
+<div class="row"><label class="k"></label><div>
+  <button id="export">Export learning data</button>
+  <button id="import">Import backup</button>
+  <input type="file" id="importFile" accept="application/json" hidden>
+  <span id="bstatus" class="hint"></span></div></div>
+
 <div class="row" style="margin-top:26px"><label class="k"></label><div><button class="primary" id="save">Save settings</button> <span id="saved" class="hint"></span></div></div>
 <script type="module" src="options.js"></script>

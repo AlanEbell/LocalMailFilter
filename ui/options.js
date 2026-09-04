@@ -1,4 +1,4 @@
-import { getSettings, setSettings, stats } from "../lib/store.js";
+import { getSettings, setSettings, stats, exportAll, importAll } from "../lib/store.js";
 import { getAllow, revoke } from "../lib/allowlist.js";
 import { buildOwnerBlock, suggestNotes } from "../lib/owner.js";
 
@@ -75,6 +75,32 @@ $("#save").addEventListener("click", async () => {
   $("#ownerNotes").value = cur ? cur + "\n" + sug : sug;
   $("#ownerNotes").focus();
 });
+$("#export").addEventListener("click", async () => {
+  const data = await exportAll();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `localmailfilter-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const n = Object.keys(data.allowlist).length;
+  $("#bstatus").textContent = `exported ${n} allow-list entr${n === 1 ? "y" : "ies"}`;
+});
+
+$("#import").addEventListener("click", () => $("#importFile").click());
+$("#importFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const r = await importAll(JSON.parse(await f.text()));
+    $("#bstatus").textContent =
+      `merged: ${r.allowlist} allow-listed, ${r.corrections} corrections, ${r.verdicts} verdicts`;
+    load();
+  } catch (err) {
+    $("#bstatus").textContent = `import failed: ${err.message}`;
+  }
+});
+
 load();
 });
 

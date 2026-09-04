@@ -5,6 +5,22 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Bump the patch version on every build. Thunderbird only preserves an add-on's
+# stored data when it treats the install as an UPGRADE; installing the same
+# version, or uninstalling first, allocates a fresh storage UUID and silently
+# discards the allow-list, corrections and verdict history.
+if [ "${NO_BUMP:-}" != "1" ]; then
+python3 - <<'PY'
+import json
+m = json.load(open("manifest.json"))
+p = m["version"].split("."); p[-1] = str(int(p[-1]) + 1)
+m["version"] = ".".join(p)
+json.dump(m, open("manifest.json", "w"), indent=2)
+open("manifest.json", "a").write("\n")
+print("version ->", m["version"])
+PY
+fi
+
 # Regenerate the prompt module from the editable text file.
 python3 - <<'PY'
 import json

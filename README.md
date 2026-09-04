@@ -138,12 +138,28 @@ sudo systemctl daemon-reload && sudo systemctl restart ollama
 
 This does not expose the daemon to the network — Ollama still binds to localhost.
 
+## Upgrading without losing what it has learned
+
+Thunderbird allocates a **fresh, empty storage area** to an add-on that is uninstalled
+and reinstalled — the allow-list, learned corrections and verdict history go with the
+old one. Installing a *newer version* over the top is treated as an upgrade and keeps
+everything, which is why `build.sh` bumps the patch version on every build (set
+`NO_BUMP=1` to suppress).
+
+If you do need to uninstall, press **Export learning data** in the settings first and
+**Import backup** afterwards. Imports merge rather than overwrite, so senders trusted
+since the backup was taken survive.
+
 ## Troubleshooting
 
 **Folders appear but nothing is ever tagged.** The add-on classifies mail as it
 arrives; existing inbox mail is not touched until you ask. Open the report tab from
 the toolbar button and press **Scan last 24h**, or wait for new mail. If the queue is
 growing and no verdicts appear, check for the 403 above.
+
+**It reclassified everything after I reinstalled it.** The storage area was replaced
+along with the add-on's internal UUID, so it had no record of having seen that mail.
+Upgrade in place instead of uninstalling, and keep a backup export.
 
 **Nothing at all happens.** Confirm the endpoint from the settings page with **Test
 connection**. It distinguishes "unreachable", "connected but model not pulled", and
