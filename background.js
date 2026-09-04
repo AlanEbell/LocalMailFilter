@@ -147,9 +147,20 @@ async function drainQueue({ manual = false } = {}) {
         await dequeue([item.headerMessageId]);
       } catch (e) {
         log("classify failed", item.headerMessageId, e.message);
+        counts.failed = (counts.failed || 0) + 1;
         emit({ evt: "item", done: done.length + 1, total: queue.length, counts,
-               subject: "(failed)", from: "", category: "error", reason: e.message });
-        done.push(item.headerMessageId); // don't wedge the queue on one bad message
+               subject: "(could not classify)", from: "", category: "error", reason: e.message });
+        // Record the failure so the message is visible in the report rather than
+        // silently skipped, and drop it from the queue right away: retrying a
+        // message that just poisoned the model only stalls the batch again.
+        await putVerdict({
+          headerMessageId: item.headerMessageId, ts: Date.now(), account: item.account,
+          from: "", subject: "(could not classify)", category: "legitimate",
+          confidence: 0, reason: `classifier error: ${e.message}`, evidence: [],
+          action: "left", failed: true,
+        });
+        done.push(item.headerMessageId);
+        await dequeue([item.headerMessageId]);
       }
     }
   } finally {

@@ -57,6 +57,7 @@ const live = {
     if (c.phishing)      pills.push(`<span class="pill phish">${c.phishing} phishing</span>`);
     if (c.legitimate)    pills.push(`<span class="pill legit">${c.legitimate} legitimate</span>`);
     if (c.allowlisted)   pills.push(`<span class="pill trust">${c.allowlisted} trusted</span>`);
+    if (c.failed)        pills.push(`<span class="pill fail">${c.failed} failed</span>`);
     $("#livetally").innerHTML = pills.join("");
     $("#livenow").textContent = m.subject ? `${m.category} — ${m.subject}` : "";
   },
