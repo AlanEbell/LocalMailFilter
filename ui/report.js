@@ -32,15 +32,64 @@ function wire() {
   }
 }
 
+// ---- live progress -----------------------------------------------------
+// The background script broadcasts one message per classified email. Without this
+// a long batch looks like the add-on has hung.
+
+const live = {
+  show(on) { $("#live").hidden = !on; },
+  reset(total) {
+    this.total = total; this.done = 0;
+    $("#livefill").style.width = "0%";
+    $("#livecount").textContent = `0 of ${total}`;
+    $("#livetally").innerHTML = "";
+    $("#livenow").textContent = "loading model…";
+    this.show(true);
+  },
+  item(m) {
+    this.done = m.done;
+    const pct = m.total ? (m.done / m.total) * 100 : 0;
+    $("#livefill").style.width = pct.toFixed(1) + "%";
+    $("#livecount").textContent = `${m.done} of ${m.total}`;
+    const c = m.counts || {};
+    const pills = [];
+    if (c.business_spam) pills.push(`<span class="pill spam">${c.business_spam} business spam</span>`);
+    if (c.phishing)      pills.push(`<span class="pill phish">${c.phishing} phishing</span>`);
+    if (c.legitimate)    pills.push(`<span class="pill legit">${c.legitimate} legitimate</span>`);
+    if (c.allowlisted)   pills.push(`<span class="pill trust">${c.allowlisted} trusted</span>`);
+    $("#livetally").innerHTML = pills.join("");
+    $("#livenow").textContent = m.subject ? `${m.category} — ${m.subject}` : "";
+  },
+  done(m) {
+    $("#livefill").style.width = "100%";
+    if (m.skipped) {
+      $("#livenow").textContent = m.skipped === "ollama-down"
+        ? "Ollama is not reachable — nothing was lost, the queue is intact."
+        : m.skipped === "model-missing" ? "The configured model is not pulled."
+        : m.skipped;
+      return;
+    }
+    $("#livenow").textContent = m.gpuReleased
+      ? "finished — model unloaded, GPU released"
+      : "finished";
+    setTimeout(() => this.show(false), 6000);
+    draw();
+  },
+};
+
+browser.runtime.onMessage.addListener((m) => {
+  if (m.evt === "start") live.reset(m.total);
+  else if (m.evt === "item") live.item(m);
+  else if (m.evt === "done") live.done(m);
+});
+
 $("#day").value = today();
 $("#day").addEventListener("change", draw);
 $("#sort").addEventListener("click", async () => {
-  status("classifying…");
+  status("");
   const r = await browser.runtime.sendMessage({ cmd: "sortNow" });
-  status(r.skipped === "ollama-down" ? "Ollama is not running."
-       : r.skipped === "empty" ? "Nothing queued."
-       : `processed ${r.processed}`);
-  draw();
+  if (r.skipped === "empty") status("Nothing queued — try Scan last 24h.");
+  else if (r.skipped === "already-running") status("Already running.");
 });
 $("#scan").addEventListener("click", async () => {
   status("scanning inboxes…");

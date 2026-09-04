@@ -14,6 +14,14 @@ const TAGS = {
 
 const log = (...a) => console.log("[triage]", ...a);
 
+let draining = false;
+
+// Progress broadcasts to any open report tab. Rejects harmlessly when nothing
+// is listening, which is the normal case.
+function emit(payload) {
+  browser.runtime.sendMessage(payload).catch(() => {});
+}
+
 // ---- folder plumbing ---------------------------------------------------
 
 async function watchedAccounts() {
@@ -55,19 +63,25 @@ async function ensureTags() {
 // ---- classification ----------------------------------------------------
 
 async function drainQueue({ manual = false } = {}) {
+  if (draining) return { processed: 0, skipped: "already-running" };
   const s = await getSettings();
   const queue = await getQueue();
   if (!queue.length) return { processed: 0, skipped: "empty" };
+  draining = true;
 
   const oll = new Ollama(s.endpoint, s.model);
   const health = await oll.health();
   if (!health) {
     log("ollama unreachable — leaving", queue.length, "queued");
     if (manual) notify("Ollama unreachable", `${queue.length} message(s) still queued. Start the service and try again.`);
+    draining = false;
+    emit({ evt: "done", skipped: "ollama-down" });
     return { processed: 0, skipped: "ollama-down" };
   }
   if (!health.hasModel) {
     notify("Model missing", `${s.model} is not pulled. Run: ollama pull ${s.model}`);
+    draining = false;
+    emit({ evt: "done", skipped: "model-missing" });
     return { processed: 0, skipped: "model-missing" };
   }
 
@@ -76,6 +90,7 @@ async function drainQueue({ manual = false } = {}) {
   const sys = withOwner(await buildOwnerBlock(s.ownerNotes)) + shots;
   const done = [];
   const counts = { business_spam: 0, phishing: 0, legitimate: 0, allowlisted: 0 };
+  emit({ evt: "start", total: queue.length });
 
   try {
     for (const item of queue) {
@@ -97,7 +112,11 @@ async function drainQueue({ manual = false } = {}) {
               category: "legitimate", confidence: 1, reason: `allow-listed (${hit})`,
               evidence: [], action: "skipped-allowlist",
             });
+            emit({ evt: "item", done: done.length + 1, total: queue.length, counts,
+                   subject: hdr.subject, from: emailAddress(hdr.author),
+                   category: "legitimate", note: "trusted sender, model skipped" });
             done.push(item.headerMessageId);
+            await dequeue([item.headerMessageId]);
             continue;
           }
         }
@@ -119,15 +138,24 @@ async function drainQueue({ manual = false } = {}) {
           category: v.category, confidence: v.confidence, reason: v.reason,
           evidence: v.evidence, keys, action,
         });
+        emit({ evt: "item", done: done.length + 1, total: queue.length, counts,
+               subject: hdr.subject, from: emailAddress(hdr.author),
+               category: v.category, reason: v.reason, action });
         done.push(item.headerMessageId);
+        // Drop it from the queue immediately: a restart mid-batch should resume,
+        // not reclassify everything already paid for.
+        await dequeue([item.headerMessageId]);
       } catch (e) {
         log("classify failed", item.headerMessageId, e.message);
+        emit({ evt: "item", done: done.length + 1, total: queue.length, counts,
+               subject: "(failed)", from: "", category: "error", reason: e.message });
         done.push(item.headerMessageId); // don't wedge the queue on one bad message
       }
     }
   } finally {
     // Always release the GPU, even if the loop threw.
     await oll.unload();
+    draining = false;
   }
 
   await dequeue(done);
@@ -142,6 +170,7 @@ async function drainQueue({ manual = false } = {}) {
       (s.mode === "shadow" ? " — shadow mode, nothing moved." : ""));
   }
   await maybeOfferGraduation();
+  emit({ evt: "done", processed: done.length, counts, gpuReleased: vramAfter.length === 0 });
   return { processed: done.length, counts, vramBefore, vramAfter };
 }
 

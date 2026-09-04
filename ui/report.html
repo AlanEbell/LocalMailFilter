@@ -4,7 +4,20 @@
 <style>body{font:14px system-ui,sans-serif;margin:0}#bar{padding:12px 24px;border-bottom:1px solid #ddd;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #bar button,#bar select,#bar input{font:inherit;padding:4px 10px;border-radius:6px;border:1px solid #bbb;background:#fff;cursor:pointer}
 @media(prefers-color-scheme:dark){body{background:#1c1c1e;color:#e8e8e8}#bar{border-color:#333}#bar button,#bar select,#bar input{background:#252528;color:#e8e8e8;border-color:#444}}
-#status{color:#888;font-size:13px}</style>
+#status{color:#888;font-size:13px}
+#live{padding:14px 24px;border-bottom:1px solid #ddd}
+#livebar{height:6px;border-radius:3px;background:#0001;overflow:hidden}
+#livefill{height:100%;width:0;background:#2f6feb;transition:width .25s ease}
+#livetext{display:flex;gap:16px;align-items:baseline;margin-top:8px;font-size:13px;flex-wrap:wrap}
+#livecount{font-weight:600}
+#livetally{color:#888}
+#livenow{color:#888;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46ch}
+.pill{display:inline-block;padding:1px 8px;border-radius:9px;font-size:11.5px;font-weight:600;margin-right:5px}
+.pill.spam{background:#E5A50A22;color:#8a6400}.pill.phish{background:#E01B2422;color:#b3151d}
+.pill.legit{background:#2a9d3f22;color:#1e7a2f}.pill.trust{background:#2f6feb22;color:#2558c0}
+@media(prefers-color-scheme:dark){#live{border-color:#333}#livebar{background:#fff2}
+  .pill.spam{color:#f0c04a}.pill.phish{color:#ff7b7b}.pill.legit{color:#63d17a}.pill.trust{color:#7ba7f5}}
+</style>
 <div id="bar">
   <label>Day <input type="date" id="day"></label>
   <button id="sort">Sort now</button>
@@ -12,6 +25,14 @@
   <button id="recon">Check for rescues</button>
   <button id="opts">Settings</button>
   <span id="status"></span>
+</div>
+<div id="live" hidden>
+  <div id="livebar"><div id="livefill"></div></div>
+  <div id="livetext">
+    <span id="livecount"></span>
+    <span id="livetally"></span>
+    <span id="livenow"></span>
+  </div>
 </div>
 <div id="out"></div>
 <script type="module" src="report.js"></script>
