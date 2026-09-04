@@ -4,15 +4,24 @@ const $ = (s) => document.querySelector(s);
 const today = () => new Date().toISOString().slice(0, 10);
 const status = (t) => { $("#status").textContent = t; };
 
+let hideReviewed = localStorage.getItem("hideReviewed") !== "0";
+
 async function draw() {
   const day = $("#day").value || today();
-  $("#out").innerHTML = await renderReport(day, { interactive: true });
+  $("#out").innerHTML = await renderReport(day, { interactive: true, hideReviewed });
   wire();
 }
 
 // Agree / Wrong is the feedback signal the shadow run measures precision from.
 // "Wrong" runs exactly the same learning path as physically moving a message back.
 function wire() {
+  const tog = document.querySelector("#hidedone");
+  if (tog) tog.addEventListener("change", () => {
+    hideReviewed = tog.checked;
+    localStorage.setItem("hideReviewed", hideReviewed ? "1" : "0");
+    draw();
+  });
+
   for (const btn of document.querySelectorAll(".btns button")) {
     btn.addEventListener("click", async () => {
       const cell = btn.closest(".btns");
@@ -28,6 +37,10 @@ function wire() {
         if (m) await browser.runtime.sendMessage({ cmd: "rescue", id: m.id, headerMessageId: hmid });
         cell.innerHTML = '<span class="done">✓ sender trusted</span>';
       }
+      const tr = cell.closest("tr");
+      tr.classList.replace("pending", "reviewed");
+      if (hideReviewed) setTimeout(() => tr.remove(), 400);
+      bumpCounts();
     });
   }
 }
@@ -74,7 +87,10 @@ const live = {
       ? "finished — model unloaded, GPU released"
       : "finished";
     setTimeout(() => this.show(false), 6000);
-    draw();
+    // Only redraw if nothing is part-way through being reviewed, so a batch
+    // completing does not yank the table out from under you.
+    if (!document.querySelector("tr.pending")) draw();
+    else status("new results ready — reload the day to see them");
   },
 };
 
@@ -83,6 +99,17 @@ browser.runtime.onMessage.addListener((m) => {
   else if (m.evt === "item") live.item(m);
   else if (m.evt === "done") live.done(m);
 });
+
+// Keep the "N reviewed, M left" line honest as you click, without a full redraw.
+function bumpCounts() {
+  const bar = document.querySelector(".revbar");
+  if (!bar) return;
+  const done = document.querySelectorAll("tr.reviewed").length;
+  const left = document.querySelectorAll("tr.pending").length;
+  const strongs = bar.querySelectorAll("strong");
+  if (strongs[0]) strongs[0].textContent = done;
+  if (strongs[1]) strongs[1].textContent = left;
+}
 
 $("#day").value = today();
 $("#day").addEventListener("change", draw);
