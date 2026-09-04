@@ -52,6 +52,7 @@ function wire() {
 const live = {
   show(on) { $("#live").hidden = !on; },
   reset(total) {
+    $("#stop").hidden = false;
     this.total = total; this.done = 0;
     $("#livefill").style.width = "0%";
     $("#livecount").textContent = `0 of ${total}`;
@@ -75,6 +76,7 @@ const live = {
     $("#livenow").textContent = m.subject ? `${m.category} — ${m.subject}` : "";
   },
   done(m) {
+    $("#stop").hidden = true;
     $("#livefill").style.width = "100%";
     if (m.skipped) {
       $("#livenow").textContent = m.skipped === "ollama-down"
@@ -120,9 +122,30 @@ $("#sort").addEventListener("click", async () => {
   else if (r.skipped === "already-running") status("Already running.");
 });
 $("#scan").addEventListener("click", async () => {
-  status("scanning inboxes…");
-  const r = await browser.runtime.sendMessage({ cmd: "scanInbox", days: 1 });
-  status(`queued ${r.queued}`); setTimeout(draw, 2000);
+  const days = Number($("#scanrange").value);
+  status("counting…");
+
+  // Say what it will cost before spending hours of GPU time on it.
+  const probe = await browser.runtime.sendMessage({ cmd: "scanInbox", days, dryRun: true });
+  if (!probe.pending) {
+    status(`nothing new — all ${probe.scanned} message(s) in range already classified`);
+    return;
+  }
+  const mins = probe.estimateMinutes;
+  const pretty = mins >= 60 ? `about ${(mins / 60).toFixed(1)} hours` : `about ${mins} minute(s)`;
+  const ok = confirm(
+    `${probe.pending} unclassified message(s) found out of ${probe.scanned} in range.\n\n` +
+    `This will take ${pretty} of continuous GPU work.\n\n` +
+    `You can stop at any time and nothing already done is lost. Start now?`);
+  if (!ok) { status("cancelled"); return; }
+
+  const r = await browser.runtime.sendMessage({ cmd: "scanInbox", days });
+  status(`queued ${r.queued}`);
+});
+
+$("#stop").addEventListener("click", async () => {
+  await browser.runtime.sendMessage({ cmd: "stopDrain" });
+  status("stopping after the current message…");
 });
 $("#recon").addEventListener("click", async () => {
   status("checking…");

@@ -21,7 +21,15 @@
 <div id="bar">
   <label>Day <input type="date" id="day"></label>
   <button id="sort">Sort now</button>
-  <button id="scan">Scan last 24h</button>
+  <select id="scanrange" title="How far back to look">
+    <option value="1">last 24h</option>
+    <option value="7">last week</option>
+    <option value="30">last month</option>
+    <option value="365">last year</option>
+    <option value="0">entire inbox</option>
+  </select>
+  <button id="scan">Scan</button>
+  <button id="stop" hidden>Stop</button>
   <button id="recon">Check for rescues</button>
   <button id="opts">Settings</button>
   <span id="status"></span>

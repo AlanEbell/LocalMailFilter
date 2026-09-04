@@ -181,10 +181,16 @@ since the backup was taken survive.
 
 ## Troubleshooting
 
-**Folders appear but nothing is ever tagged.** The add-on classifies mail as it
-arrives; existing inbox mail is not touched until you ask. Open the report tab from
-the toolbar button and press **Scan last 24h**, or wait for new mail. If the queue is
-growing and no verdicts appear, check for the 403 above.
+**Most of my inbox is untagged.** The add-on only ever sees two things: mail that
+arrives while it is running, and whatever you explicitly ask it to scan. Everything
+that predates installation is invisible to it until you run a backfill.
+
+Open the report tab, pick a range from the dropdown — last 24h through to the entire
+inbox — and press **Scan**. It counts the unclassified messages first and tells you
+how long it will take before starting, since a large inbox is measured in hours
+rather than minutes (roughly 2.5 seconds per message). Already-classified messages
+are skipped, so re-running is cheap, and **Stop** ends the run after the current
+message with everything completed so far kept.
 
 **One account has no Look At Later folder.** Some providers refuse subfolders of
 INBOX and keep every folder at the account root — iCloud does exactly this, which is

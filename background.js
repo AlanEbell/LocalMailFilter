@@ -15,6 +15,7 @@ const TAGS = {
 const log = (...a) => console.log("[triage]", ...a);
 
 let draining = false;
+let stopRequested = false;
 
 // Progress broadcasts to any open report tab. Rejects harmlessly when nothing
 // is listening, which is the normal case.
@@ -113,6 +114,7 @@ async function ensureTags() {
 
 async function drainQueue({ manual = false } = {}) {
   if (draining) return { processed: 0, skipped: "already-running" };
+  stopRequested = false;
   const s = await getSettings();
   const queue = await getQueue();
   if (!queue.length) return { processed: 0, skipped: "empty" };
@@ -143,6 +145,7 @@ async function drainQueue({ manual = false } = {}) {
 
   try {
     for (const item of queue) {
+      if (stopRequested) { log("stop requested, ending batch early"); break; }
       try {
         const hdr = await browser.messages.get(item.id).catch(() => null);
         if (!hdr) { done.push(item.headerMessageId); continue; }
@@ -405,7 +408,9 @@ browser.action.onClicked.addListener(() => {
 browser.runtime.onMessage.addListener(async (msg) => {
   switch (msg.cmd) {
     case "sortNow":    return drainQueue({ manual: true });
-    case "scanInbox":  return scanInboxes(msg.days || 1);
+    case "scanInbox":  return scanInboxes(msg.days ?? 1, { dryRun: msg.dryRun });
+    case "queueDepth": return { pending: (await getQueue()).length, running: draining };
+    case "stopDrain":  { stopRequested = true; return { stopping: true }; }
     case "reconcile":  return reconcile();
     case "report":     return dailyReport(true);
     case "stats":      return stats();
@@ -423,22 +428,43 @@ browser.runtime.onMessage.addListener(async (msg) => {
   }
 });
 
-// Pull in inbox mail that arrived while Thunderbird was closed or Ollama was down.
-async function scanInboxes(days = 1) {
-  const since = new Date(Date.now() - days * 86400000);
+// Pull in inbox mail the add-on has never seen: messages that predate installation,
+// or arrived while Thunderbird was closed. days = 0 means the entire inbox.
+//
+// Paginated, because an inbox of several thousand messages will not come back in a
+// single query, and skipping already-classified messages keeps a re-run cheap.
+async function scanInboxes(days = 1, { dryRun = false } = {}) {
+  const since = days > 0 ? new Date(Date.now() - days * 86400000) : null;
   const verdicts = await getVerdicts();
-  let queued = 0;
+  const queued = [];
+  let scanned = 0;
+
   for (const acct of await watchedAccounts()) {
     const inbox = await inboxOf(acct);
     if (!inbox) continue;
-    const page = await browser.messages.query({ folderId: inbox.id, fromDate: since });
-    const items = page.messages
-      .filter((m) => !verdicts[m.headerMessageId])
-      .map((m) => ({ id: m.id, headerMessageId: m.headerMessageId, account: acct.id }));
-    queued += await enqueue(items);
+    const q = { folderId: inbox.id, autoPaginationTimeout: 0 };
+    if (since) q.fromDate = since;
+
+    let page = await browser.messages.query(q);
+    while (page) {
+      scanned += page.messages.length;
+      for (const m of page.messages) {
+        if (verdicts[m.headerMessageId]) continue;
+        queued.push({ id: m.id, headerMessageId: m.headerMessageId, account: acct.id });
+      }
+      if (!page.id) break;
+      page = await browser.messages.continueList(page.id).catch(() => null);
+      if (page && !page.messages.length) break;
+    }
   }
-  if (queued) drainQueue();
-  return { queued };
+
+  // Roughly 2.5s per message on a mid-range GPU; enough to decide whether to start.
+  const estimate = Math.round((queued.length * 2.5) / 60);
+  if (dryRun) return { scanned, pending: queued.length, estimateMinutes: estimate };
+
+  const n = await enqueue(queued);
+  if (n) drainQueue();
+  return { scanned, queued: n, estimateMinutes: estimate };
 }
 
 // On graduating to full mode: move everything still tagged that you did not mark Wrong.
