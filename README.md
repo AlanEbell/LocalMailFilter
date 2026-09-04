@@ -4,6 +4,63 @@ A Thunderbird add-on that triages business spam and phishing into a **Look At La
 folder using a local LLM served by [Ollama](https://ollama.com). Nothing leaves your
 machine, and nothing is ever deleted.
 
+## Features
+
+**Classification**
+- Local LLM verdicts in three categories: `business_spam`, `phishing`, `legitimate`
+- Schema-constrained JSON output, so parsing is deterministic rather than scraped from prose
+- Each message rendered as headers, authentication results, a display-text-vs-real-host
+  link table, and the first N characters of body
+- Owner identity, addresses and role inboxes read from Thunderbird automatically
+- Every verdict carries cited evidence and a one-line reason
+
+**Three modes, always under your control**
+- `shadow` tags only and never moves; `confident` moves clear-cut calls; `full` moves everything flagged
+- The add-on never changes its own mode. It suggests graduation once, via a notification,
+  after 50 reviewed messages at 95% precision
+- "Move tagged backlog" sweeps everything tagged during shadow running in one pass
+- No `messagesDelete` permission is requested, so deletion is impossible by construction
+
+**Learning from corrections**
+- Moving a message out of Look At Later allow-lists the sender and records a counter-example
+- Allow-list keys prefer DKIM signing domain, then `List-Id`, then exact address
+- Shared bulk infrastructure is never eligible as a domain key
+- Confident phishing is flagged even for allow-listed senders
+- Recent corrections are injected as few-shot examples, so the model learns the pattern
+- A reconciliation sweep catches rescues performed on another device
+
+**Hostile-input handling**
+- Message bodies fenced by per-message randomised markers
+- Injection attempts treated as evidence of phishing rather than obeyed
+- Hidden text (`display:none`, zero font-size, white-on-white) extracted and surfaced
+- Zero-width and bidirectional control characters stripped and counted
+
+**Backfill and queueing**
+- Scan range from last 24h to the entire inbox, paginated
+- Counts unclassified messages and estimates the time before starting
+- Stop ends a run after the current message; completed work is kept
+- The queue survives restarts and Ollama being unreachable; nothing is lost when the model is down
+- Already-classified messages are skipped, so widening a range only pays the difference
+
+**Reporting**
+- Live progress bar and per-category tally while a batch runs
+- Daily report as a Thunderbird tab, optionally emailed to yourself
+- Agree / Wrong per message; reviewed rows stay marked, with a hide-reviewed toggle
+- Precision statistics broken down by category
+- Desktop notification summarising each batch
+
+**GPU discipline**
+- Model held warm for the duration of a batch, then explicitly unloaded
+- Idle VRAM use is zero; verified against `/api/ps` before and after each batch
+- Generation capped so a runaway response cannot exhaust the context window
+
+**Operational**
+- Per-account destination folders, falling back to the account root where a provider
+  refuses subfolders of Inbox
+- Folder status shown per account with a retry button
+- Export / import of learning data, merging rather than overwriting
+- Version auto-bumps on build so installs are upgrades and storage survives
+
 ## Why an add-on rather than a script
 
 Running inside Thunderbird means it reuses Thunderbird's existing authentication.

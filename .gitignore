@@ -5,3 +5,6 @@ node_modules/
 # Local experiments and anything holding personal mailbox detail
 local/
 *.local.js
+
+# Personal machine notes — accounts, paths, local state
+SESSION-NOTES.md
