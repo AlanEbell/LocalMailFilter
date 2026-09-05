@@ -18,9 +18,13 @@ button.primary{background:#2f6feb;color:#fff;border-color:#2f6feb}
 table{border-collapse:collapse;width:100%;font-size:13px}td{padding:6px 4px;border-bottom:1px solid var(--line)}
 code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 .ok{color:#2a9d3f}.bad{color:#d32}#health{font-size:13px}
+.ver{font-size:12px;font-weight:400;color:var(--mut);vertical-align:middle;padding:2px 8px;
+     border:1px solid var(--line);border-radius:10px;margin-left:8px}
+.foot{margin-top:30px;padding-top:14px;border-top:1px solid var(--line);color:var(--mut);
+     font-size:12px;display:flex;gap:18px;flex-wrap:wrap}
 .grad{border-left:3px solid #2a9d3f;padding:10px 14px;background:var(--card);border-radius:4px;font-size:13px}
 </style>
-<h1>Mail Triage</h1>
+<h1>Mail Triage <span id="ver" class="ver"></span></h1>
 
 <div class="card">
   <div class="stat" id="stats"></div>
@@ -85,4 +89,5 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
   <span id="bstatus" class="hint"></span></div></div>
 
 <div class="row" style="margin-top:26px"><label class="k"></label><div><button class="primary" id="save">Save settings</button> <span id="saved" class="hint"></span></div></div>
+<div class="foot" id="foot"></div>
 <script type="module" src="options.js"></script>

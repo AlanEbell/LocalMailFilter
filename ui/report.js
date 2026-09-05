@@ -113,6 +113,7 @@ function bumpCounts() {
   if (strongs[1]) strongs[1].textContent = left;
 }
 
+$("#ver").textContent = "v" + browser.runtime.getManifest().version;
 $("#day").value = today();
 $("#day").addEventListener("change", draw);
 $("#sort").addEventListener("click", async () => {

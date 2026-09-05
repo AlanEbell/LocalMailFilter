@@ -8,6 +8,16 @@ const CHECKS = ["emailReport","notifyOnSort"];
 
 async function load() {
   const s = await getSettings();
+
+  const mf = browser.runtime.getManifest();
+  $("#ver").textContent = "v" + mf.version;
+  // A single line answering "what am I actually running, and against what?" —
+  // the questions worth asking first when something looks wrong.
+  $("#foot").innerHTML =
+    `<span>Mail Triage <strong>v${mf.version}</strong></span>` +
+    `<span>Thunderbird ${navigator.userAgent.match(/Thunderbird\/([\d.]+)/)?.[1] || "?"}</span>` +
+    `<span>model <strong>${s.model}</strong> at ${s.endpoint}</span>` +
+    `<span><a href="https://github.com/AlanEbell/LocalMailFilter" target="_blank">source</a></span>`;
   for (const f of FIELDS) $("#" + f).value = s[f];
 
   // Nothing here should ask for something Thunderbird already knows. Default the
