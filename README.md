@@ -28,6 +28,17 @@ machine, and nothing is ever deleted.
 - Useful when you already suspect a message is phishing, and as a fallback when new
   mail was not picked up promptly
 - Re-scanning an already-classified message is allowed; the new verdict replaces the old
+- A manual scan also considers **attachment metadata** — declared filename, type and size
+- Attachments are **never opened, parsed or read**. Extracting text from one would mean
+  running a parser over attacker-controlled bytes inside the process holding your mail
+  and its OAuth sessions; no spam verdict is worth that trade
+- Filenames are sender-controlled, so they sit inside the randomised fence and go through
+  the same injection detection as body text
+- The automatic pipeline never sees attachment metadata at all — it is opt-in, and opting
+  in is something only you can do, per message
+- Every verdict records how many attachments were present, and the scan notification says
+  plainly that their contents were not scanned. A verdict about a message is not a verdict
+  about a file, and the notification is where that would otherwise be confused
 
 **Correcting it**
 - A toolbar button on any open message: *Not spam — trust this sender* or *This is spam*

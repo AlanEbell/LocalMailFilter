@@ -1,7 +1,7 @@
 import { getSettings, setSettings, putVerdict, updateVerdict, getVerdicts,
          enqueue, dequeue, getQueue, stats, pruneVerdicts, localDay } from "./lib/store.js";
 import { Ollama } from "./lib/ollama.js";
-import { buildPrompt, identityKeys, emailAddress } from "./lib/extract.js";
+import { buildPrompt, identityKeys, emailAddress, attachmentList } from "./lib/extract.js";
 import { withOwner } from "./lib/prompt.js";
 import { buildOwnerBlock } from "./lib/owner.js";
 import * as AL from "./lib/allowlist.js";
@@ -183,7 +183,9 @@ async function drainQueue({ manual = false } = {}) {
           }
         }
 
-        const text = buildPrompt(hdr, full, s.bodyChars);
+        // Attachment metadata only for a scan you asked for by hand. The automatic
+        // pipeline gains no new sender-controlled input.
+        const text = buildPrompt(hdr, full, s.bodyChars, { attachments: !!item.deep });
         const v = await oll.classify(sys, text);
         counts[v.category] = (counts[v.category] || 0) + 1;
 
@@ -199,6 +201,10 @@ async function drainQueue({ manual = false } = {}) {
           account: item.account, from: emailAddress(hdr.author), subject: hdr.subject,
           category: v.category, confidence: v.confidence, reason: v.reason,
           evidence: v.evidence, keys, action,
+          // Counted on every verdict so the report and the popup can say what was
+          // never looked at. Counting needs no access to the files themselves.
+          attachments: attachmentList(full).length,
+          attachmentsInspected: false,
         });
         emit({ evt: "item", done: done.length + 1, total: queue.length, counts,
                subject: hdr.subject, from: emailAddress(hdr.author),
@@ -315,6 +321,7 @@ async function scanOnDemand(msgs) {
   if (!msgs.length) return;
   const items = msgs.map((m) => ({
     id: m.id, headerMessageId: m.headerMessageId, account: m.folder?.accountId,
+    deep: true,   // you asked for this one, so declared attachment metadata is in scope
   }));
   await enqueue(items);
 
@@ -331,7 +338,13 @@ async function scanOnDemand(msgs) {
     if (!v) return void notify("Mail Triage", "That message could not be scanned.");
     const label = VERDICT_LABEL[v.category] || v.category;
     const pct = Math.round((v.confidence || 0) * 100);
-    notify(`${label} — ${pct}% confident`, v.reason || "No reason recorded.");
+    // The limit belongs at the moment of the decision. A verdict about the message
+    // is not a verdict about the file, and this is where that gets confused.
+    const n = v.attachments || 0;
+    const caveat = n
+      ? `\n\n${n} attachment${n === 1 ? "" : "s"} — CONTENTS NOT SCANNED. This says nothing about whether ${n === 1 ? "the file is" : "the files are"} safe to open.`
+      : "";
+    notify(`${label} — ${pct}% confident`, (v.reason || "No reason recorded.") + caveat);
     return;
   }
   const flagged = msgs.filter((m) => {
