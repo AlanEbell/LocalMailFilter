@@ -40,6 +40,15 @@ machine, and nothing is ever deleted.
   plainly that their contents were not scanned. A verdict about a message is not a verdict
   about a file, and the notification is where that would otherwise be confused
 
+**Surviving a restart**
+- Thunderbird only runs the add-on while it is open, so nothing is classified while
+  it is closed
+- On startup it waits a minute for the initial IMAP sync, then scans the last two days
+  and queues anything that never got a verdict
+- The scan skips messages that already have one, so nothing is re-classified and no
+  GPU time is paid twice
+- It runs once per session, and says how many messages it picked up
+
 **Correcting it**
 - A toolbar button on any open message: *Not spam — trust this sender* or *This is spam*
 - Shows the current verdict and which identity key trusting would allow-list

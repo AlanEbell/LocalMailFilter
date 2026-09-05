@@ -17,6 +17,14 @@ const log = (...a) => console.log("[triage]", ...a);
 let draining = false;
 let rerunRequested = false;
 let stopRequested = false;
+let caughtUp = false;
+
+// How far back a startup catch-up looks. Thunderbird only runs the add-on while it
+// is open, and nothing guarantees the new-mail event fires for messages pulled
+// during the startup sync, so mail that arrived while it was shut could otherwise
+// go unclassified forever. Two days covers an overnight or a weekend; the scan
+// skips anything that already has a verdict, so this re-classifies nothing.
+const CATCH_UP_DAYS = 2;
 
 // Progress broadcasts to any open report tab. Rejects harmlessly when nothing
 // is listening, which is the normal case.
@@ -833,6 +841,27 @@ async function init() {
   browser.alarms.create("report",    { periodInMinutes: 30 });
   browser.alarms.create("prune",     { periodInMinutes: 1440 });
   log("initialised");
+
+  // Deferred, because at this point the initial IMAP sync has usually not finished
+  // and the mail we are looking for is not in the store yet. Once per session:
+  // init() also runs on install and on reload, and there is no point rescanning.
+  if (!caughtUp) {
+    caughtUp = true;
+    setTimeout(() => void catchUp(), 60_000);
+  }
+}
+
+async function catchUp() {
+  try {
+    const r = await scanInboxes(CATCH_UP_DAYS);
+    if (r.queued) {
+      log("catch-up queued", r.queued, "unclassified from the last", CATCH_UP_DAYS, "days");
+      notify("Mail Triage: catching up",
+        `${r.queued} message${r.queued === 1 ? "" : "s"} arrived while Thunderbird was closed. Classifying now.`);
+    }
+  } catch (e) {
+    await recordBackgroundError("startup catch-up", e);
+  }
 }
 
 browser.alarms.onAlarm.addListener(async (a) => {
