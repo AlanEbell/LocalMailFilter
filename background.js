@@ -412,6 +412,12 @@ async function resetVerdicts({ untag = true, keepReviewed = false } = {}) {
   const verdicts = await getVerdicts();
   let kept = 0;
 
+  // Stash what is about to go, so a clear is undoable without depending on the
+  // user having taken an export first.
+  await browser.storage.local.set({
+    verdictsBackup: { at: Date.now(), count: Object.keys(verdicts).length, verdicts },
+  });
+
   if (keepReviewed) {
     // Preserve rows you personally judged, so precision history is not lost.
     const next = {};
@@ -544,6 +550,19 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
     case "sweepBacklog": return sweepBacklog();
     case "resetVerdicts": return resetVerdicts(msg.opts || {});
+    case "undoReset": {
+      const s = await browser.storage.local.get("verdictsBackup");
+      if (!s.verdictsBackup) return { restored: 0 };
+      const cur = await getVerdicts();
+      // Merge, so anything classified since the clear is not thrown away in turn.
+      await browser.storage.local.set({ verdicts: { ...s.verdictsBackup.verdicts, ...cur } });
+      return { restored: s.verdictsBackup.count, at: s.verdictsBackup.at };
+    }
+    case "resetInfo": {
+      const s = await browser.storage.local.get("verdictsBackup");
+      return s.verdictsBackup
+        ? { at: s.verdictsBackup.at, count: s.verdictsBackup.count } : null;
+    }
     case "verdictFor": {
       const v = (await getVerdicts())[msg.headerMessageId] || null;
       let keys = v?.keys || [];

@@ -44,6 +44,13 @@ async function load() {
     ).join("") || '<span class="hint">no accounts watched</span>';
   });
 
+  browser.runtime.sendMessage({ cmd: "resetInfo" }).then((info) => {
+    if (!info) return;
+    $("#undo").hidden = false;
+    $("#undo").title = `Restores ${info.count} verdict(s) cleared on ` +
+      new Date(info.at).toLocaleString();
+  });
+
   const st = await stats();
   const pct = st.precision === null ? "—" : (st.precision * 100).toFixed(1) + "%";
   $("#stats").innerHTML = `
@@ -100,6 +107,13 @@ $("#mkfolders").addEventListener("click", async () => {
 
 $("#reset").addEventListener("click", async () => {
   const keepReviewed = $("#keepReviewed").checked;
+  browser.runtime.sendMessage({ cmd: "resetInfo" }).then((info) => {
+    if (!info) return;
+    $("#undo").hidden = false;
+    $("#undo").title = `Restores ${info.count} verdict(s) cleared on ` +
+      new Date(info.at).toLocaleString();
+  });
+
   const st = await stats();
   const ok = confirm(
     `Discard the model's verdicts and clear its tags?\n\n` +
@@ -118,17 +132,66 @@ $("#reset").addEventListener("click", async () => {
   load();
 });
 
-$("#export").addEventListener("click", async () => {
-  const data = await exportAll();
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `localmailfilter-backup-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  const n = Object.keys(data.allowlist).length;
-  $("#bstatus").textContent = `exported ${n} allow-list entr${n === 1 ? "y" : "ies"}`;
+$("#undo").addEventListener("click", async () => {
+  const r = await browser.runtime.sendMessage({ cmd: "undoReset" });
+  $("#rstat").textContent = r.restored
+    ? `restored ${r.restored} verdict(s) — tags were not restored`
+    : "nothing to restore";
+  load();
 });
+
+$("#export").addEventListener("click", async () => {
+  $("#bstatus").textContent = "preparing…";
+  const data = await exportAll();
+  const n = Object.keys(data.allowlist).length;
+  const text = JSON.stringify(data, null, 2);
+  const name = `localmailfilter-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+
+  // A detached <a download> silently does nothing in an extension page, so use the
+  // downloads API. Fall back to showing the text if that is unavailable too, since
+  // an export you cannot get at is worse than no export button.
+  try {
+    const id = await browser.downloads.download({ url, filename: name, saveAs: true });
+    $("#bstatus").textContent =
+      `saved ${name} — ${n} allow-list entr${n === 1 ? "y" : "ies"}, ` +
+      `${(data.corrections || []).length} correction(s)`;
+    browser.downloads.onChanged.addListener(function done(d) {
+      if (d.id === id && d.state?.current === "complete") {
+        URL.revokeObjectURL(url);
+        browser.downloads.onChanged.removeListener(done);
+      }
+    });
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    showFallback(text, name, e.message);
+  }
+});
+
+// Last resort: put the backup on screen so it can be copied out by hand.
+function showFallback(text, name, why) {
+  $("#bstatus").innerHTML = `<span class="bad">could not save a file (${escapeHtml(why)})</span>`;
+  let box = document.querySelector("#fallback");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "fallback";
+    box.style.marginTop = "10px";
+    $("#bstatus").parentNode.appendChild(box);
+  }
+  box.innerHTML =
+    `<div class="hint" style="margin-bottom:6px">Copy this and save it as <code>${escapeHtml(name)}</code>:</div>` +
+    `<textarea readonly style="width:100%;height:150px;font:12px ui-monospace,monospace;` +
+    `border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);padding:8px"></textarea>` +
+    `<div style="margin-top:6px"><button id="copyb">Copy to clipboard</button></div>`;
+  box.querySelector("textarea").value = text;
+  box.querySelector("#copyb").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(text).catch(() => {});
+    box.querySelector("#copyb").textContent = "copied";
+  });
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 $("#import").addEventListener("click", () => $("#importFile").click());
 $("#importFile").addEventListener("change", async (e) => {

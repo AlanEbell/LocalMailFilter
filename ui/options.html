@@ -11,8 +11,15 @@ label.k{min-width:150px;padding-top:4px}
 input,select{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
 input[type=number]{width:80px}input[type=text]{width:280px}
 .hint{color:var(--mut);font-size:12.5px;margin-top:4px;max-width:450px}
-button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--fg);cursor:pointer}
+button{font:inherit;padding:6px 14px;border:1px solid #2f6feb55;border-radius:7px;
+  background:var(--bg);color:#2f6feb;cursor:pointer;font-weight:500}
+button:hover{background:#2f6feb12;border-color:#2f6feb}
+button:active{background:#2f6feb22}
+button[disabled]{opacity:.45;cursor:default;color:var(--mut);border-color:var(--line)}
 button.primary{background:#2f6feb;color:#fff;border-color:#2f6feb}
+button.primary:hover{background:#2560d6}
+@media(prefers-color-scheme:dark){button{color:#7ba7f5;border-color:#7ba7f555}
+  button:hover{background:#7ba7f518}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
 .stat{display:flex;gap:28px;flex-wrap:wrap}.stat div span{display:block;color:var(--mut);font-size:12px}.stat div b{font-size:19px}
 table{border-collapse:collapse;width:100%;font-size:13px}td{padding:6px 4px;border-bottom:1px solid var(--line)}
@@ -85,6 +92,7 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 <div class="row"><label class="k"></label><div>
   <label style="display:block;margin-bottom:8px"><input type="checkbox" id="keepReviewed"> keep messages I personally reviewed (preserves precision history)</label>
   <button id="reset">Clear verdicts and tags</button>
+  <button id="undo" hidden>Undo last clear</button>
   <span id="rstat" class="hint"></span>
   <div class="hint" style="margin-top:6px">Afterwards, open the report tab and press <strong>Scan</strong> to re-classify.</div></div></div>
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mail Triage",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Local-LLM triage of business spam and phishing into a Look At Later folder, with a learning allow-list and a daily report.",
   "author": "Alan Bell",
   "browser_specific_settings": {
@@ -22,7 +22,8 @@
     "compose.send",
     "notifications",
     "storage",
-    "alarms"
+    "alarms",
+    "downloads"
   ],
   "host_permissions": [
     "http://localhost:11434/*"
