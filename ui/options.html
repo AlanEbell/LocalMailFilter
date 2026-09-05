@@ -29,6 +29,10 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
      border:1px solid var(--line);border-radius:10px;margin-left:8px}
 .foot{margin-top:30px;padding-top:14px;border-top:1px solid var(--line);color:var(--mut);
      font-size:12px;display:flex;gap:18px;flex-wrap:wrap}
+#errbox{margin-top:20px;padding:12px 14px;border:1px solid #d3322f66;border-left:3px solid #d3322f;
+  border-radius:6px;background:var(--card);font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;
+  color:var(--fg);max-height:220px;overflow:auto}
+#errbox h3{margin:0 0 6px;font:600 12px system-ui;color:#d3322f}
 .grad{border-left:3px solid #2a9d3f;padding:10px 14px;background:var(--card);border-radius:4px;font-size:13px}
 </style>
 <h1>Mail Triage <span id="ver" class="ver"></span></h1>
@@ -105,5 +109,6 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
   <span id="bstatus" class="hint"></span></div></div>
 
 <div class="row" style="margin-top:26px"><label class="k"></label><div><button class="primary" id="save">Save settings</button> <span id="saved" class="hint"></span></div></div>
+<div id="errbox" hidden></div>
 <div class="foot" id="foot"></div>
 <script type="module" src="options.js"></script>

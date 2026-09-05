@@ -4,3 +4,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 node test/extract.test.mjs
+node test/lint-ui.mjs
