@@ -32,11 +32,34 @@ DIRECTION OF SALE — apply this before anything else:
 
 CATEGORIES
 
+AUTHENTICATION COMES FIRST — read the DKIM, SPF and DMARC lines before judging:
+  Phishing works by pretending to be someone else. If the authentication results show
+  the mail genuinely came from the domain it claims, that impersonation has not happened,
+  and it is NOT phishing however pushy the content is.
+    - A DMARC PASS is the authoritative answer and outranks everything else: the From
+      address is genuine and impersonation is ruled out. It does not matter which domain
+      signed; DMARC already accounts for that. Never return phishing for a DMARC pass.
+    - Failing that, DKIM pass ALIGNED with the From domain also means the address is not
+      forged. Large senders sign from subdomains (emails.brand.com for brand.com); that
+      is alignment, not a mismatch. Do not treat it as suspicious.
+    - A big company using a mail provider (Salesforce, SES, Mailchimp) to send its mail
+      is ordinary practice, not evidence of anything.
+    - A DMARC pass against a published p=reject or p=quarantine policy is conclusive:
+      the domain owner asserts this mail is theirs.
+    - Authenticated mail can still be business_spam. A genuine company sending genuine
+      but unwanted marketing is spam, not phishing. Classify it as such.
+    - Suspect phishing when authentication FAILS or is absent while the message claims
+      a known brand, or when DKIM is aligned only to an unrelated organisation.
+  Alarming subject lines, urgency and scare-marketing are NOT phishing by themselves.
+  A real company using a breach or an expiry as a sales hook is doing marketing.
+
 "phishing" — deception aimed at stealing credentials, money, or data. Requires concrete evidence:
   credential-harvest or payment lure, sender domain impersonating a known brand, DKIM/SPF failure
-  combined with a brand claim, link domain not matching the claimed sender, manufactured urgency
-  about account loss, or an unexpected request to change payment or banking details.
-  An aggressive sales pitch is NOT phishing.
+  combined with a brand claim, link domains belonging to someone other than the claimed sender,
+  manufactured urgency about account loss, or an unexpected request to change payment or banking
+  details. An aggressive sales pitch is NOT phishing. Neither is authenticated marketing that
+  uses fear as a hook. Do not return phishing for a message whose DKIM is aligned and whose
+  links all belong to the sender's own domain.
 
 "business_spam" — unsolicited bulk commercial mail sent TO the owner by someone with no prior
   relationship who wants something from them: cold B2B outreach, lead-gen, SEO and marketing

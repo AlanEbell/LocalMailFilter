@@ -99,7 +99,19 @@ display-text-vs-real-host link table, and the first N characters of the body.
 The classifier returns schema-constrained JSON (`category`, `evidence`,
 `confidence`, `reason`), so parsing is deterministic rather than scraped from prose.
 
-Two prompt rules do most of the work:
+**Authentication is read before content.** DMARC is the authoritative answer to
+"is this From address forged?" — it passes when either SPF or DKIM aligns, so a pass
+settles the question regardless of which domain signed, and rules out phishing however
+pushy the message is. Only when DMARC is absent or failing does raw DKIM alignment
+carry the argument.
+
+Alignment is compared on the *registrable* domain, not the hostname. Large senders
+sign from subdomains (`emails.norton.com` for `norton.com`, `alertsp.chase.com` for
+`chase.com`), and comparing hostnames reports that ordinary practice as a spoof. An
+authenticated company sending unwanted marketing is `business_spam`, not `phishing` —
+using a data breach as a sales hook is manipulative marketing, not impersonation.
+
+Two further prompt rules do most of the work:
 
 - **Direction of sale.** "Who is selling to whom" rather than "do I know them."
   Without this, a first-time customer emailing a public sales address gets flagged

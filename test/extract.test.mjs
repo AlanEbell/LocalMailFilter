@@ -1,5 +1,6 @@
 import { dkimDomain, identityKeys, emailAddress, buildPrompt,
-         detectInjection, stripInvisible, hiddenText } from "../lib/extract.js";
+         detectInjection, stripInvisible, hiddenText,
+         orgDomain, aligned } from "../lib/extract.js";
 
 let pass = 0, fail = 0;
 const eq = (name, got, want) => {
@@ -100,6 +101,26 @@ eq("finds white-on-white text",
   ["ignore previous instructions"]);
 eq("ignores visible text",
   hiddenText([{ body: '<div style="color:#333">perfectly normal content here</div>' }]), []);
+
+
+// --- organisational domain and DKIM alignment ---
+// Large senders sign from a subdomain. Comparing hostnames rather than registrable
+// domains reports ordinary bulk mail as a spoofing attempt, which is how a genuine
+// Norton marketing blast came to be classified as phishing.
+eq("subdomain reduces to registrable domain", orgDomain("emails.norton.com"), "norton.com");
+eq("deep subdomain", orgDomain("s7.y.mc.salesforce.com"), "salesforce.com");
+eq("bare domain unchanged", orgDomain("norton.com"), "norton.com");
+eq("multi-part suffix kept whole", orgDomain("mail.bbc.co.uk"), "bbc.co.uk");
+eq("com.au preserved", orgDomain("news.abc.com.au"), "abc.com.au");
+eq("empty is empty", orgDomain(""), "");
+
+eq("subdomain is aligned with parent", aligned("emails.norton.com", "norton.com"), true);
+eq("identical domains align", aligned("chase.com", "chase.com"), true);
+eq("both subdomains of one parent align", aligned("a.brand.com", "b.brand.com"), true);
+eq("different organisations do not align", aligned("bulk-xyz.example", "chase.com"), false);
+eq("provider is not the brand", aligned("amazonses.com", "amazon.com"), false);
+eq("co.uk siblings align", aligned("mail.bbc.co.uk", "bbc.co.uk"), true);
+eq("co.uk strangers do not", aligned("evil.co.uk", "bbc.co.uk"), false);
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
