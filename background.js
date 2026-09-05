@@ -15,6 +15,7 @@ const TAGS = {
 const log = (...a) => console.log("[triage]", ...a);
 
 let draining = false;
+let rerunRequested = false;
 let stopRequested = false;
 
 // Progress broadcasts to any open report tab. Rejects harmlessly when nothing
@@ -117,7 +118,12 @@ async function ensureTags() {
 // ---- classification ----------------------------------------------------
 
 async function drainQueue({ manual = false } = {}) {
-  if (draining) return { processed: 0, skipped: "already-running" };
+  // Mail that arrives mid-batch used to wait for the next 10-minute alarm: the
+  // listener enqueued it, called drainQueue, and was turned away because a batch
+  // was already running. At ~2.5s a message a backfill can run for minutes, so
+  // "it didn't scan my new mail right away" was this. Remember the request and
+  // run again once the current batch finishes.
+  if (draining) { rerunRequested = true; return { processed: 0, skipped: "already-running" }; }
   stopRequested = false;
   const s = await getSettings();
   const queue = await getQueue();
@@ -229,6 +235,14 @@ async function drainQueue({ manual = false } = {}) {
   const vramAfter = await oll.loaded();
   log("batch done", counts, "vram released:", vramAfter.length === 0);
 
+  // Anything queued while this batch was busy gets picked up now rather than at
+  // the next alarm. The queue shrinks every pass — items are dequeued even when
+  // they fail — so this terminates.
+  if (rerunRequested) {
+    rerunRequested = false;
+    if ((await getQueue()).length) setTimeout(() => void drainQueue(), 0);
+  }
+
   const flagged = counts.business_spam + counts.phishing;
   if (flagged && s.notifyOnSort) {
     const verb = s.mode === "shadow" ? "Tagged" : "Sorted";
@@ -283,6 +297,70 @@ browser.messages.onNewMailReceived.addListener(async (folder, messages) => {
   }));
   const n = await enqueue(items);
   if (n) { log("queued", n, "from", folder.accountId); drainQueue(); }
+});
+
+// Scan on demand from the message list. Two reasons this exists: new mail is
+// occasionally not picked up promptly, and — the more useful case — you want a
+// straight answer about a message you already suspect is phishing.
+//
+// It reports the verdict back rather than filing it silently. An explicit check
+// you asked for should tell you what it found; sorting still follows the mode.
+const VERDICT_LABEL = {
+  business_spam: "Business spam",
+  phishing: "Possible phishing",
+  legitimate: "Looks legitimate",
+};
+
+async function scanOnDemand(msgs) {
+  if (!msgs.length) return;
+  const items = msgs.map((m) => ({
+    id: m.id, headerMessageId: m.headerMessageId, account: m.folder?.accountId,
+  }));
+  await enqueue(items);
+
+  const r = await drainQueue({ manual: true });
+  if (r?.skipped === "already-running") {
+    notify("Mail Triage", `A batch is running — ${msgs.length === 1 ? "that message is" : "those are"} queued and will be scanned next.`);
+    return;
+  }
+  if (r?.skipped) return;   // drainQueue already explained ollama-down / model-missing
+
+  const verdicts = await getVerdicts();
+  if (msgs.length === 1) {
+    const v = verdicts[msgs[0].headerMessageId];
+    if (!v) return void notify("Mail Triage", "That message could not be scanned.");
+    const label = VERDICT_LABEL[v.category] || v.category;
+    const pct = Math.round((v.confidence || 0) * 100);
+    notify(`${label} — ${pct}% confident`, v.reason || "No reason recorded.");
+    return;
+  }
+  const flagged = msgs.filter((m) => {
+    const c = verdicts[m.headerMessageId]?.category;
+    return c === "business_spam" || c === "phishing";
+  }).length;
+  notify("Mail Triage", `Scanned ${msgs.length} messages — ${flagged} flagged.`);
+}
+
+// The callback swallows the duplicate-id error when init() runs again on startup.
+browser.menus.create({
+  id: "triage-scan-now",
+  title: "Scan with Mail Triage",
+  contexts: ["message_list"],
+}, () => void browser.runtime.lastError);
+
+browser.menus.onClicked.addListener(async (info) => {
+  if (info.menuItemId !== "triage-scan-now") return;
+  const sel = info.selectedMessages;
+  if (!sel) return;
+  let msgs = sel.messages || [];
+  let page = sel;
+  while (page?.id) {
+    page = await browser.messages.continueList(page.id).catch(() => null);
+    if (!page?.messages?.length) break;
+    msgs = msgs.concat(page.messages);
+  }
+  try { await scanOnDemand(msgs); }
+  catch (e) { await recordBackgroundError("scan on demand", e); }
 });
 
 // A rescue: you moved something OUT of Look At Later. That is a false positive,

@@ -21,6 +21,14 @@ machine, and nothing is ever deleted.
 - "Move tagged backlog" sweeps everything tagged during shadow running in one pass
 - No `messagesDelete` permission is requested, so deletion is impossible by construction
 
+**Scanning on demand**
+- Right-click any message (or a selection) in the message list → *Scan with Mail Triage*
+- Reports the verdict, confidence and reason in a notification rather than filing it
+  silently — an answer you asked for should come back to you
+- Useful when you already suspect a message is phishing, and as a fallback when new
+  mail was not picked up promptly
+- Re-scanning an already-classified message is allowed; the new verdict replaces the old
+
 **Correcting it**
 - A toolbar button on any open message: *Not spam — trust this sender* or *This is spam*
 - Shows the current verdict and which identity key trusting would allow-list
