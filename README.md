@@ -90,8 +90,8 @@ machine, and nothing is ever deleted.
 - Generation capped so a runaway response cannot exhaust the context window
 
 **Operational**
-- Per-account destination folders, falling back to the account root where a provider
-  refuses subfolders of Inbox
+- Per-account destination folders, created at the account root, falling back to a
+  subfolder of Inbox where a provider refuses one at the root
 - Folder status shown per account with a retry button
 - Export / import of learning data, merging rather than overwriting
 - Version auto-bumps on build so installs are upgrades and storage survives
@@ -309,12 +309,25 @@ rather than minutes (roughly 2.5 seconds per message). Already-classified messag
 are skipped, so re-running is cheap, and **Stop** ends the run after the current
 message with everything completed so far kept.
 
-**One account has no Look At Later folder.** Some providers refuse subfolders of
-INBOX and keep every folder at the account root — iCloud does exactly this, which is
-why its own folders sit beside INBOX rather than inside it. Folder creation falls back
-to the account root automatically. The settings page lists the destination folder for
-each account, with a button to retry any that failed. An account without a folder is
-tagged but never moved, in any mode.
+**One account has no Look At Later folder.** Folder creation prefers the account
+root and falls back to a subfolder of INBOX if the server refuses one there. The
+settings page lists the destination folder for each account, with a button to retry
+any that failed. An account without a folder is tagged but never moved, in any mode.
+
+**Sorted mail still shows in my unified inbox.** Thunderbird enrols a newly created
+subfolder of INBOX into the unified Inbox's search scope, so a destination folder
+sitting inside INBOX keeps matching the unified view and the mail never appears to
+leave. This is why the folder is now created at the account root instead. A folder
+created by an older version is still under INBOX and still enrolled — either move it
+to the account root, or right-click the unified Inbox, open its properties and
+uncheck it. Note that the live scope is not `virtualFolders.dat`, which Thunderbird
+only rewrites on exit.
+
+**The daily report never arrives.** It runs unattended, and it records success only
+after it has rendered, sent and saved, so a failure at any stage retries silently on
+the next alarm. Failures are now recorded with the stage they occurred in and shown
+in the error box at the top of the report tab, alongside any errors from the page
+itself. A successful run clears them.
 
 **It reclassified everything after I reinstalled it.** The storage area was replaced
 along with the add-on's internal UUID, so it had no record of having seen that mail.
