@@ -332,6 +332,76 @@ browser.messages.onMoved.addListener(async (originals, moved) => {
   }
 });
 
+// Correcting a verdict directly from a message. Works whether or not the message
+// was ever classified, and whether or not you already judged it in the report —
+// changing your mind has to be possible, or the first answer is permanent.
+async function trustSender(msgId, headerMessageId) {
+  const hdr = await browser.messages.get(msgId);
+  const full = await browser.messages.getFull(msgId);
+  const keys = identityKeys(hdr, full);
+  const rec = (await getVerdicts())[headerMessageId];
+
+  const key = await AL.allow(keys, { reason: "marked not spam by you", sample: hdr.subject });
+  await AL.addCorrection({
+    kind: "false_positive", was: rec?.category || "unclassified",
+    from: emailAddress(hdr.author), subject: hdr.subject,
+  });
+  await putVerdict({
+    headerMessageId, ts: rec?.ts || Date.now(), account: rec?.account || hdr.folder?.accountId,
+    from: emailAddress(hdr.author), subject: hdr.subject,
+    category: "legitimate", confidence: 1, evidence: [],
+    reason: rec ? `you corrected this: was ${rec.category}` : "you marked this sender trusted",
+    action: rec?.action === "moved" ? "moved" : "left",
+    userVerdict: "wrong", rescuedAt: Date.now(), allowKey: key, keys,
+  });
+
+  // Clear our tags so the message looks untouched again.
+  const tags = (hdr.tags || []).filter((t) => t !== TAGS.business_spam.key && t !== TAGS.phishing.key);
+  await browser.messages.update(msgId, { tags }).catch(() => {});
+
+  // If it had been moved, put it back where it belongs.
+  const s = await getSettings();
+  if (hdr.folder?.name === s.folderName) {
+    const acct = (await browser.accounts.list(false)).find((a) => a.id === hdr.folder.accountId);
+    const inbox = acct ? await inboxOf(acct) : null;
+    if (inbox) await browser.messages.move([msgId], inbox.id).catch(() => {});
+  }
+  log("trusted", key);
+  return { key };
+}
+
+// The reverse: something the model let through that you consider spam.
+async function markSpam(msgId, headerMessageId) {
+  const hdr = await browser.messages.get(msgId);
+  const rec = (await getVerdicts())[headerMessageId];
+  const s = await getSettings();
+
+  await AL.addCorrection({
+    kind: "false_negative", should: "business_spam",
+    from: emailAddress(hdr.author), subject: hdr.subject,
+  });
+  // Trusting a sender then reporting them as spam should undo the trust.
+  if (rec?.allowKey) await AL.revoke(rec.allowKey);
+
+  const tags = [...new Set([...(hdr.tags || []), TAGS.business_spam.key])];
+  await browser.messages.update(msgId, { tags }).catch(() => {});
+
+  let action = "tagged";
+  if (s.mode !== "shadow") {
+    const acct = (await browser.accounts.list(false)).find((a) => a.id === hdr.folder?.accountId);
+    const dest = acct ? await triageFolderOf(acct) : null;
+    if (dest) { await browser.messages.move([msgId], dest.id); action = "moved"; }
+  }
+  await putVerdict({
+    headerMessageId, ts: rec?.ts || Date.now(), account: hdr.folder?.accountId,
+    from: emailAddress(hdr.author), subject: hdr.subject,
+    category: "business_spam", confidence: 1, evidence: [],
+    reason: "you marked this as spam", action, userVerdict: "agree",
+  });
+  log("marked spam:", hdr.subject);
+  return { action };
+}
+
 // ---- reconciliation ----------------------------------------------------
 // onMoved only fires for moves Thunderbird performs. A rescue done on your phone
 // arrives as a silent IMAP change, so periodically check what left the folder.
@@ -420,6 +490,19 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "rescue":     return learnRescue(msg.id, msg.headerMessageId, "marked Wrong in report");
     case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
     case "sweepBacklog": return sweepBacklog();
+    case "verdictFor": {
+      const v = (await getVerdicts())[msg.headerMessageId] || null;
+      let keys = v?.keys || [];
+      if (!keys.length && msg.id != null) {
+        try {
+          const hdr = await browser.messages.get(msg.id);
+          keys = identityKeys(hdr, await browser.messages.getFull(msg.id));
+        } catch { /* message may be gone */ }
+      }
+      return { verdict: v, keys };
+    }
+    case "trustSender": return trustSender(msg.id, msg.headerMessageId);
+    case "markSpam":    return markSpam(msg.id, msg.headerMessageId);
     case "folders":    return foldersStatus();
     case "makeFolders": {
       for (const a of await watchedAccounts()) await triageFolderOf(a, true).catch(() => null);

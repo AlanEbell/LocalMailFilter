@@ -28,18 +28,23 @@ function wire() {
       const hmid = cell.dataset.hmid;
       const act = btn.dataset.act;
       cell.innerHTML = '<span class="done">saving…</span>';
+      const found = await browser.messages.query({ headerMessageId: hmid });
+      const m = found.messages[0];
       if (act === "confirm") {
-        await browser.runtime.sendMessage({ cmd: "confirm", headerMessageId: hmid });
-        cell.innerHTML = '<span class="done">✓ agreed</span>';
+        // Changing "trusted" back to "agreed" must also withdraw the allow-list entry.
+        if (m) await browser.runtime.sendMessage({ cmd: "markSpam", id: m.id, headerMessageId: hmid });
+        else await browser.runtime.sendMessage({ cmd: "confirm", headerMessageId: hmid });
+        cell.innerHTML = '<span class="done">✓ agreed</span>' +
+          ' <button class="chg" data-act="wrong">change</button>';
       } else {
-        const found = await browser.messages.query({ headerMessageId: hmid });
-        const m = found.messages[0];
-        if (m) await browser.runtime.sendMessage({ cmd: "rescue", id: m.id, headerMessageId: hmid });
-        cell.innerHTML = '<span class="done">✓ sender trusted</span>';
+        if (m) await browser.runtime.sendMessage({ cmd: "trustSender", id: m.id, headerMessageId: hmid });
+        cell.innerHTML = '<span class="done">✓ sender trusted</span>' +
+          ' <button class="chg" data-act="confirm">change</button>';
       }
+      wire();
       const tr = cell.closest("tr");
       tr.classList.replace("pending", "reviewed");
-      if (hideReviewed) setTimeout(() => tr.remove(), 400);
+      if (hideReviewed && !btn.classList.contains("chg")) setTimeout(() => tr.remove(), 400);
       bumpCounts();
     });
   }

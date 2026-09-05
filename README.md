@@ -21,6 +21,13 @@ machine, and nothing is ever deleted.
 - "Move tagged backlog" sweeps everything tagged during shadow running in one pass
 - No `messagesDelete` permission is requested, so deletion is impossible by construction
 
+**Correcting it**
+- A toolbar button on any open message: *Not spam — trust this sender* or *This is spam*
+- Shows the current verdict and which identity key trusting would allow-list
+- Works on messages that were never classified, so you can pre-trust a sender
+- Verdicts already reviewed can be changed in either direction from the report
+- Reversing a trust withdraws the allow-list entry it created
+
 **Learning from corrections**
 - Moving a message out of Look At Later allow-lists the sender and records a counter-example
 - Allow-list keys prefer DKIM signing domain, then `List-Id`, then exact address

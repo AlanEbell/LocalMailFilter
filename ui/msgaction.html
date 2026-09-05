@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Mail Triage</title>
+<style>
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#fff;--mut:#666;--line:#e0e0e0;--card:#f7f7f8}
+@media(prefers-color-scheme:dark){:root{--fg:#e8e8e8;--bg:#1c1c1e;--mut:#9a9a9a;--line:#333;--card:#252528}}
+body{font:13px/1.5 system-ui,sans-serif;color:var(--fg);background:var(--bg);margin:0;padding:14px;width:330px}
+h1{font-size:13px;margin:0 0 10px;font-weight:600}
+.cur{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:12px}
+.cur .cat{font-weight:600}.cur .why{color:var(--mut);margin-top:4px;font-size:12px}
+.b{font-size:11px;padding:2px 7px;border-radius:9px;font-weight:600}
+.spam{background:#E5A50A22;color:#8a6400}.phish{background:#E01B2422;color:#b3151d}
+.legit{background:#2a9d3f22;color:#1e7a2f}
+@media(prefers-color-scheme:dark){.spam{color:#f0c04a}.phish{color:#ff7b7b}.legit{color:#63d17a}}
+button{font:inherit;width:100%;padding:8px 12px;margin-bottom:7px;border:1px solid var(--line);
+  border-radius:7px;background:var(--card);color:var(--fg);cursor:pointer;text-align:left}
+button:hover{filter:brightness(1.08)}
+button b{display:block}button small{color:var(--mut);font-size:11.5px}
+button.trust{border-color:#2a9d3f66}button.spam{border-color:#E5A50A66}
+#key{font-size:11.5px;color:var(--mut);margin-top:9px;word-break:break-all}
+#done{color:#2a9d3f;font-weight:600;padding:8px 0}
+code{background:var(--card);padding:1px 4px;border-radius:3px}
+</style>
+<h1>Mail Triage</h1>
+<div id="cur" class="cur">loading…</div>
+<div id="actions" hidden>
+  <button class="trust" id="trust"><b>Not spam — trust this sender</b>
+    <small>Allow-lists them, clears the tag, and teaches the model it was wrong</small></button>
+  <button class="spam" id="spam"><b>This is spam</b>
+    <small>Tags it and records a miss the model should have caught</small></button>
+</div>
+<div id="key"></div>
+<div id="done" hidden></div>
+<script type="module" src="msgaction.js"></script>

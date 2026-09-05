@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mail Triage",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Local-LLM triage of business spam and phishing into a Look At Later folder, with a learning allow-list and a daily report.",
   "author": "Alan Bell",
   "browser_specific_settings": {
@@ -40,5 +40,10 @@
   "action": {
     "default_title": "Mail Triage",
     "default_icon": "icons/icon-32.png"
+  },
+  "message_display_action": {
+    "default_title": "Mail Triage \u2014 correct this verdict",
+    "default_icon": "icons/icon-32.png",
+    "default_popup": "ui/msgaction.html"
   }
 }
