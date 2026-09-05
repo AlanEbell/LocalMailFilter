@@ -1,4 +1,4 @@
-import { getSettings, setSettings, stats, exportAll, importAll } from "../lib/store.js";
+import { getSettings, setSettings, stats, exportAll, importAll, localDay } from "../lib/store.js";
 import { getAllow, revoke } from "../lib/allowlist.js";
 import { buildOwnerBlock, suggestNotes } from "../lib/owner.js";
 
@@ -200,7 +200,7 @@ on("#undo", async () => {
 on("#export", async () => {
   $("#bstatus").textContent = "preparing…";
   const text = JSON.stringify(await exportAll(), null, 2);
-  const name = `localmailfilter-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `localmailfilter-backup-${localDay()}.json`;
 
   // Render it on the page first. A backup you cannot retrieve is worse than no
   // backup button, so the path that cannot fail runs before the one that can.

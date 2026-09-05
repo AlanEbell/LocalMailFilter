@@ -1,5 +1,5 @@
 import { getSettings, setSettings, putVerdict, updateVerdict, getVerdicts,
-         enqueue, dequeue, getQueue, stats, pruneVerdicts } from "./lib/store.js";
+         enqueue, dequeue, getQueue, stats, pruneVerdicts, localDay } from "./lib/store.js";
 import { Ollama } from "./lib/ollama.js";
 import { buildPrompt, identityKeys, emailAddress } from "./lib/extract.js";
 import { withOwner } from "./lib/prompt.js";
@@ -520,7 +520,7 @@ function notify(title, message) {
 
 async function dailyReport(force = false) {
   const s = await getSettings();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   if (!force && s.lastReportDate === today) return;
   const html = await renderReport(today);
   if (s.emailReport && s.reportEmail) await sendReportEmail(s, today, html);

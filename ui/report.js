@@ -1,4 +1,5 @@
 import { renderReport } from "../lib/report.js";
+import { localDay } from "../lib/store.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -22,7 +23,7 @@ function on(sel, fn) {
     try { await fn(ev); } catch (err) { reportError(sel, err); }
   });
 }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDay();
 const status = (t) => { $("#status").textContent = t; };
 
 let hideReviewed = localStorage.getItem("hideReviewed") !== "0";

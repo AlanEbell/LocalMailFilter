@@ -6,3 +6,4 @@ cd "$(dirname "$0")/.."
 node test/extract.test.mjs
 node test/lint-ui.mjs
 node test/parse.test.mjs
+TZ="America/New_York" node test/day.test.mjs
