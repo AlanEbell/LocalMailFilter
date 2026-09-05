@@ -1,6 +1,27 @@
 import { renderReport } from "../lib/report.js";
 
 const $ = (s) => document.querySelector(s);
+
+const errors = [];
+function reportError(where, err) {
+  errors.push(`${new Date().toLocaleTimeString()}  ${where}: ${err?.message || err}`);
+  const box = $("#errbox");
+  if (box) {
+    box.hidden = false;
+    box.textContent = "Something went wrong — please send this to Claude:\n\n" + errors.join("\n");
+  }
+  try { browser.storage.local.set({ reportErrors: errors.slice(-20) }); } catch { /* nothing to do */ }
+}
+window.addEventListener("error", (e) => reportError("uncaught", e.error || e));
+window.addEventListener("unhandledrejection", (e) => reportError("promise", e.reason));
+
+function on(sel, fn) {
+  const el = $(sel);
+  if (!el) { reportError("wiring", new Error(`element ${sel} not found`)); return; }
+  el.addEventListener("click", async (ev) => {
+    try { await fn(ev); } catch (err) { reportError(sel, err); }
+  });
+}
 const today = () => new Date().toISOString().slice(0, 10);
 const status = (t) => { $("#status").textContent = t; };
 
@@ -94,10 +115,10 @@ const live = {
       ? "finished — model unloaded, GPU released"
       : "finished";
     setTimeout(() => this.show(false), 6000);
-    // Only redraw if nothing is part-way through being reviewed, so a batch
-    // completing does not yank the table out from under you.
-    if (!document.querySelector("tr.pending")) draw();
-    else status("new results ready — reload the day to see them");
+    // Always refresh. Rows render their stored verdict, so a redraw no longer
+    // discards work in progress, and results that never appear are worse than a
+    // table that moves under you.
+    draw();
   },
 };
 
@@ -121,13 +142,13 @@ function bumpCounts() {
 $("#ver").textContent = "v" + browser.runtime.getManifest().version;
 $("#day").value = today();
 $("#day").addEventListener("change", draw);
-$("#sort").addEventListener("click", async () => {
+on("#sort", async () => {
   status("");
   const r = await browser.runtime.sendMessage({ cmd: "sortNow" });
   if (r.skipped === "empty") status("Nothing queued — try Scan last 24h.");
   else if (r.skipped === "already-running") status("Already running.");
 });
-$("#scan").addEventListener("click", async () => {
+on("#scan", async () => {
   const days = Number($("#scanrange").value);
   status("counting…");
 
@@ -146,17 +167,20 @@ $("#scan").addEventListener("click", async () => {
   if (!ok) { status("cancelled"); return; }
 
   const r = await browser.runtime.sendMessage({ cmd: "scanInbox", days });
-  status(`queued ${r.queued}`);
+  status(`queued ${r.queued} — classifying…`);
+  draw();
 });
 
-$("#stop").addEventListener("click", async () => {
+on("#stop", async () => {
   await browser.runtime.sendMessage({ cmd: "stopDrain" });
   status("stopping after the current message…");
 });
-$("#recon").addEventListener("click", async () => {
+on("#recon", async () => {
   status("checking…");
   const n = await browser.runtime.sendMessage({ cmd: "reconcile" });
   status(`learned from ${n} off-device rescue(s)`); draw();
 });
-$("#opts").addEventListener("click", () => browser.runtime.openOptionsPage());
-draw();
+on("#opts", () => browser.runtime.openOptionsPage());
+on("#refresh", () => draw());
+
+draw().catch((e) => reportError("draw", e));

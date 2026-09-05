@@ -17,14 +17,18 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "  ok  " : "  FAIL"} ${name}${ok || !detail ? "" : "\n         " + detail}`);
 };
 
-// --- handler registrations must be at column 0 ---
-const js = readFileSync(new URL("../ui/options.js", import.meta.url), "utf8").split("\n");
-const nested = [];
-js.forEach((line, i) => {
-  const m = /^(\s*)on\("#/.exec(line);
-  if (m && m[1].length > 0) nested.push(`line ${i + 1}: ${line.trim().slice(0, 60)}`);
-});
-check("every options.js handler is registered at top level", nested.length === 0, nested.join("\n         "));
+// --- handler registrations must be at column 0, in EVERY ui script ---
+// Checking only options.js let the identical bug reappear in report.js hours later.
+for (const script of ["options", "report"]) {
+  const js = readFileSync(new URL(`../ui/${script}.js`, import.meta.url), "utf8").split("\n");
+  const nested = [];
+  js.forEach((line, i) => {
+    const m = /^(\s*)on\("#/.exec(line);
+    if (m && m[1].length > 0) nested.push(`line ${i + 1}: ${line.trim().slice(0, 60)}`);
+  });
+  check(`every ${script}.js handler is registered at top level`,
+        nested.length === 0, nested.join("\n         "));
+}
 
 // --- referenced ids must exist in the page, unless created at runtime ---
 const RUNTIME_IDS = new Set(["fallback", "bkarea", "copyb", "saveb", "cstat"]);
