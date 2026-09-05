@@ -402,6 +402,59 @@ async function markSpam(msgId, headerMessageId) {
   return { action };
 }
 
+// Discard the model's verdicts so mail can be judged again — after a classifier fix,
+// for example. Deliberately keeps the allow-list and the correction history: those are
+// YOUR judgements, and re-earning them would waste the review work already done.
+//
+// Tags are cleared alongside, otherwise tags from the discarded run survive with
+// nothing recording why they are there.
+async function resetVerdicts({ untag = true, keepReviewed = false } = {}) {
+  const verdicts = await getVerdicts();
+  let kept = 0;
+
+  if (keepReviewed) {
+    // Preserve rows you personally judged, so precision history is not lost.
+    const next = {};
+    for (const [k, v] of Object.entries(verdicts)) {
+      if (v.userVerdict) { next[k] = v; kept++; }
+    }
+    await browser.storage.local.set({ verdicts: next });
+  } else {
+    await browser.storage.local.set({ verdicts: {} });
+  }
+
+  let untagged = 0;
+  if (untag) {
+    const keys = [TAGS.business_spam.key, TAGS.phishing.key];
+    try {
+      const q = await browser.messages.query({
+        tags: { mode: "any", tags: Object.fromEntries(keys.map((k) => [k, true])) },
+        autoPaginationTimeout: 0,
+      });
+      let page = q;
+      while (page) {
+        for (const m of page.messages) {
+          const tags = (m.tags || []).filter((t) => !keys.includes(t));
+          await browser.messages.update(m.id, { tags }).catch(() => {});
+          untagged++;
+        }
+        if (!page.id) break;
+        page = await browser.messages.continueList(page.id).catch(() => null);
+        if (page && !page.messages.length) break;
+      }
+    } catch (e) {
+      log("untag failed:", e.message);
+    }
+  }
+
+  await browser.storage.local.set({ queue: [] });
+  const allow = Object.keys(await AL.getAllow()).length;
+  const corr = (await AL.getCorrections()).length;
+  log(`reset: cleared verdicts (kept ${kept}), untagged ${untagged}, ` +
+      `preserved ${allow} allow-list entries and ${corr} corrections`);
+  return { kept, untagged, allowKept: allow, correctionsKept: corr };
+}
+
 // ---- reconciliation ----------------------------------------------------
 // onMoved only fires for moves Thunderbird performs. A rescue done on your phone
 // arrives as a silent IMAP change, so periodically check what left the folder.
@@ -490,6 +543,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "rescue":     return learnRescue(msg.id, msg.headerMessageId, "marked Wrong in report");
     case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
     case "sweepBacklog": return sweepBacklog();
+    case "resetVerdicts": return resetVerdicts(msg.opts || {});
     case "verdictFor": {
       const v = (await getVerdicts())[msg.headerMessageId] || null;
       let keys = v?.keys || [];

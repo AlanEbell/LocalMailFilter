@@ -98,6 +98,26 @@ $("#mkfolders").addEventListener("click", async () => {
   load();
 });
 
+$("#reset").addEventListener("click", async () => {
+  const keepReviewed = $("#keepReviewed").checked;
+  const st = await stats();
+  const ok = confirm(
+    `Discard the model's verdicts and clear its tags?\n\n` +
+    (keepReviewed
+      ? `The ${st.reviewed} message(s) you reviewed yourself will be kept.\n`
+      : `All verdicts will go, including the ${st.reviewed} you reviewed. ` +
+        `Your precision history resets to zero.\n`) +
+    `\nYour allow-list and learned corrections are NOT affected.\n\n` +
+    `Nothing is deleted from your mail — only tags are removed.`);
+  if (!ok) return;
+  $("#rstat").textContent = "clearing…";
+  const r = await browser.runtime.sendMessage({ cmd: "resetVerdicts", opts: { untag: true, keepReviewed } });
+  $("#rstat").textContent =
+    `cleared — ${r.untagged} message(s) untagged, kept ${r.allowKept} allow-listed sender(s) ` +
+    `and ${r.correctionsKept} correction(s)`;
+  load();
+});
+
 $("#export").addEventListener("click", async () => {
   const data = await exportAll();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });

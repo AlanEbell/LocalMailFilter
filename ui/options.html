@@ -80,6 +80,14 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 <div class="hint" style="margin-bottom:10px">Senders you rescued. A match skips the model entirely — except for confident phishing, which is still flagged even for trusted senders, since impersonation is how phishing works.</div>
 <table id="allow"></table>
 
+<h2>Re-classify</h2>
+<div class="hint" style="margin-bottom:10px">Discards the model's verdicts and clears its tags so mail can be judged again — useful after a classifier fix. <strong>Your allow-list and corrections are kept</strong>; those are your judgements, not the model's, and re-earning them would waste your review work.</div>
+<div class="row"><label class="k"></label><div>
+  <label style="display:block;margin-bottom:8px"><input type="checkbox" id="keepReviewed"> keep messages I personally reviewed (preserves precision history)</label>
+  <button id="reset">Clear verdicts and tags</button>
+  <span id="rstat" class="hint"></span>
+  <div class="hint" style="margin-top:6px">Afterwards, open the report tab and press <strong>Scan</strong> to re-classify.</div></div></div>
+
 <h2>Backup</h2>
 <div class="hint" style="margin-bottom:10px">Uninstalling the add-on discards the allow-list and everything it has learned — Thunderbird gives a reinstalled add-on a fresh, empty storage area. Installing a newer version over the top keeps it. Export before you uninstall.</div>
 <div class="row"><label class="k"></label><div>

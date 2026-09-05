@@ -243,6 +243,19 @@ sudo systemctl daemon-reload && sudo systemctl restart ollama
 
 This does not expose the daemon to the network — Ollama still binds to localhost.
 
+## Re-classifying after a change
+
+Settings has **Clear verdicts and tags**, which discards the model's judgements and
+removes its tags so mail can be classified again — worth doing after a fix to the
+classifier itself.
+
+It deliberately keeps the allow-list and the correction history. Those are your
+judgements rather than the model's, and re-earning them would waste the review work
+already done. An option preserves rows you personally reviewed, so precision history
+survives too. No mail is deleted; only tags are removed.
+
+Afterwards, press **Scan** in the report tab with whatever range you want.
+
 ## Upgrading without losing what it has learned
 
 Thunderbird allocates a **fresh, empty storage area** to an add-on that is uninstalled
