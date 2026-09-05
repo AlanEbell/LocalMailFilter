@@ -461,6 +461,57 @@ async function resetVerdicts({ untag = true, keepReviewed = false } = {}) {
   return { kept, untagged, allowKept: allow, correctionsKept: corr };
 }
 
+// Repair for a defect in versions up to 0.1.18: the report's Agree button called
+// markSpam instead of confirm. Agreeing with a verdict therefore rewrote it to
+// business_spam and logged a correction claiming the model had MISSED the message,
+// when it had in fact been right. Those corrections are fed back into the prompt as
+// examples, so leaving them in place teaches the classifier the opposite of the truth.
+//
+// Both effects are identifiable: the corrections are false_negative entries, and the
+// verdicts carry the reason "you marked this as spam". Affected verdicts are removed
+// rather than guessed at, so the messages are simply classified again.
+async function repairAgreeBug() {
+  const corrections = await AL.getCorrections();
+  const keptCorrections = corrections.filter((c) => c.kind !== "false_negative");
+  const droppedCorrections = corrections.length - keptCorrections.length;
+  await browser.storage.local.set({ corrections: keptCorrections });
+
+  const verdicts = await getVerdicts();
+  const next = {};
+  let droppedVerdicts = 0;
+  for (const [k, v] of Object.entries(verdicts)) {
+    if (v.reason === "you marked this as spam") { droppedVerdicts++; continue; }
+    next[k] = v;
+  }
+  await browser.storage.local.set({ verdicts: next });
+
+  // Clear the spam tag from anything the bug tagged, so those messages look untouched.
+  let untagged = 0;
+  try {
+    let page = await browser.messages.query({
+      tags: { mode: "any", tags: { [TAGS.business_spam.key]: true } },
+      autoPaginationTimeout: 0,
+    });
+    while (page) {
+      for (const m of page.messages) {
+        if (verdicts[m.headerMessageId]?.reason !== "you marked this as spam") continue;
+        await browser.messages.update(m.id, {
+          tags: (m.tags || []).filter((t) => t !== TAGS.business_spam.key),
+        }).catch(() => {});
+        untagged++;
+      }
+      if (!page.id) break;
+      page = await browser.messages.continueList(page.id).catch(() => null);
+      if (page && !page.messages.length) break;
+    }
+  } catch (e) { log("repair untag failed:", e.message); }
+
+  const allow = Object.keys(await AL.getAllow()).length;
+  log(`repair: dropped ${droppedCorrections} bogus correction(s), ${droppedVerdicts} verdict(s), ` +
+      `untagged ${untagged}; allow-list untouched (${allow} entries)`);
+  return { droppedCorrections, droppedVerdicts, untagged, allowKept: allow };
+}
+
 // ---- reconciliation ----------------------------------------------------
 // onMoved only fires for moves Thunderbird performs. A rescue done on your phone
 // arrives as a silent IMAP change, so periodically check what left the folder.
@@ -550,6 +601,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "confirm":    return updateVerdict(msg.headerMessageId, { userVerdict: "agree" });
     case "sweepBacklog": return sweepBacklog();
     case "resetVerdicts": return resetVerdicts(msg.opts || {});
+    case "repairAgreeBug": return repairAgreeBug();
     case "undoReset": {
       const s = await browser.storage.local.get("verdictsBackup");
       if (!s.verdictsBackup) return { restored: 0 };

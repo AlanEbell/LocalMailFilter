@@ -91,6 +91,11 @@ code{background:var(--card);padding:1px 5px;border-radius:4px;font-size:12px}
 <div class="hint" style="margin-bottom:10px">Senders you rescued. A match skips the model entirely — except for confident phishing, which is still flagged even for trusted senders, since impersonation is how phishing works.</div>
 <table id="allow"></table>
 
+<h2>Repair</h2>
+<div class="hint" style="margin-bottom:10px">Versions up to 0.1.18 had the report's <strong>Agree</strong> button record the opposite of what you meant: it rewrote the verdict to business spam and logged a correction claiming the model had <em>missed</em> the message. Those corrections are fed back into the prompt, so they teach it the wrong lesson. This removes them and the affected verdicts, leaving your allow-list alone. The messages are simply classified again on the next scan.</div>
+<div class="row"><label class="k"></label><div>
+  <button id="repair">Repair Agree-button damage</button> <span id="repstat" class="hint"></span></div></div>
+
 <h2>Re-classify</h2>
 <div class="hint" style="margin-bottom:10px">Discards the model's verdicts and clears its tags so mail can be judged again — useful after a classifier fix. <strong>Your allow-list and corrections are kept</strong>; those are your judgements, not the model's, and re-earning them would waste your review work.</div>
 <div class="row"><label class="k"></label><div>

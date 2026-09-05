@@ -169,6 +169,15 @@ on("#sweep", async () => {
   load();
 });
 
+on("#repair", async () => {
+  $("#repstat").textContent = "repairing…";
+  const r = await browser.runtime.sendMessage({ cmd: "repairAgreeBug" });
+  $("#repstat").textContent =
+    `removed ${r.droppedCorrections} bogus correction(s) and ${r.droppedVerdicts} affected verdict(s), ` +
+    `untagged ${r.untagged}; allow-list intact (${r.allowKept} entries)`;
+  load();
+});
+
 on("#reset", async () => {
   const keepReviewed = $("#keepReviewed").checked;
   const st = await stats();
