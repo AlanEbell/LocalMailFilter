@@ -45,12 +45,16 @@ async function rootOf(account) {
   } catch { return null; }
 }
 
-// Find (or create) the Look At Later folder. A child of INBOX is preferred, so it
-// syncs over IMAP and the sorted mail also leaves the inbox on your phone.
+// Find (or create) the Look At Later folder. The account root is preferred.
 //
-// Not every provider allows that. iCloud in particular refuses subfolders of INBOX
-// and keeps every folder at the account root, so creation there must fall back to
-// the root rather than leaving the account permanently without a destination.
+// A child of INBOX seems more natural, but Thunderbird auto-enrols new subfolders of
+// INBOX into the unified Inbox's search scope, so sorted mail kept matching the
+// unified Inbox and never left the feed. iCloud, which refuses subfolders of INBOX
+// and forces everything to the account root, was the account that behaved correctly.
+//
+// Not every provider allows a folder at the root, so creation falls back to INBOX
+// rather than leaving the account permanently without a destination. Lookup still
+// checks both places, so a folder already living under INBOX is found and reused.
 async function triageFolderOf(account, create = true) {
   const s = await getSettings();
   const inbox = await inboxOf(account);
@@ -66,21 +70,21 @@ async function triageFolderOf(account, create = true) {
   }
   if (!create) return null;
 
-  if (inbox) {
-    try {
-      const f = await browser.folders.create(inbox.id, s.folderName);
-      log("created", s.folderName, "under INBOX in", account.name);
-      return f;
-    } catch (e) {
-      log(`${account.name}: server refused a subfolder of INBOX (${e.message}); trying account root`);
-    }
-  }
-
   const root = await rootOf(account);
   if (root) {
     try {
       const f = await browser.folders.create(root.id, s.folderName);
       log("created", s.folderName, "at account root in", account.name);
+      return f;
+    } catch (e) {
+      log(`${account.name}: server refused a folder at the account root (${e.message}); trying INBOX`);
+    }
+  }
+
+  if (inbox) {
+    try {
+      const f = await browser.folders.create(inbox.id, s.folderName);
+      log("created", s.folderName, "under INBOX in", account.name);
       return f;
     } catch (e) {
       log(`${account.name}: could not create ${s.folderName} anywhere — ${e.message}`);
@@ -569,14 +573,39 @@ function notify(title, message) {
 
 // ---- daily report ------------------------------------------------------
 
+// The daily report is the one path that runs with nobody watching, and it fails
+// silently by construction: lastReportDate is only written on success, so a throw
+// anywhere above it means the alarm retries and fails again every 30 minutes
+// forever, leaving no trace. Record the failure — and which stage it died in —
+// somewhere that can actually be read: the report page's error box.
+async function recordBackgroundError(where, err) {
+  try {
+    const { backgroundErrors = [] } = await browser.storage.local.get("backgroundErrors");
+    backgroundErrors.push(`${new Date().toLocaleString()}  ${where}: ${err?.message || err}`);
+    await browser.storage.local.set({ backgroundErrors: backgroundErrors.slice(-20) });
+  } catch { /* if storage itself is failing there is nothing left to try */ }
+}
+
 async function dailyReport(force = false) {
   const s = await getSettings();
   const today = localDay();
   if (!force && s.lastReportDate === today) return;
-  const html = await renderReport(today);
-  if (s.emailReport && s.reportEmail) await sendReportEmail(s, today, html);
-  await setSettings({ lastReportDate: today });
-  log("daily report sent for", today);
+
+  let stage = "rendering";
+  try {
+    const html = await renderReport(today);
+    stage = "emailing";
+    if (s.emailReport && s.reportEmail) await sendReportEmail(s, today, html);
+    stage = "recording";
+    await setSettings({ lastReportDate: today });
+    // A run that succeeds clears the record, so a fixed fault stops looking broken.
+    await browser.storage.local.set({ backgroundErrors: [] });
+    log("daily report sent for", today);
+  } catch (e) {
+    await recordBackgroundError(`daily report (${stage})`, e);
+    log(`daily report failed while ${stage}:`, e?.message || e);
+    if (force) throw e;   // a manual run should surface it in the page that asked
+  }
 }
 
 // ---- wiring ------------------------------------------------------------

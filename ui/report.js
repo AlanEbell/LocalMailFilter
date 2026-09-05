@@ -3,15 +3,36 @@ import { localDay } from "../lib/store.js";
 
 const $ = (s) => document.querySelector(s);
 
+// Two writers, two keys. The background page records its own failures under
+// backgroundErrors; sharing one key would have each overwrite the other's history.
 const errors = [];
+let bgErrors = [];
+
+function renderErrBox() {
+  const box = $("#errbox");
+  if (!box) return;
+  const parts = [];
+  if (bgErrors.length)
+    parts.push("Background failures (the daily report runs unattended):\n" + bgErrors.join("\n"));
+  if (errors.length) parts.push("This page:\n" + errors.join("\n"));
+  if (!parts.length) return;
+  box.hidden = false;
+  box.textContent = "Something went wrong — please send this to Claude:\n\n" + parts.join("\n\n");
+}
+
 function reportError(where, err) {
   errors.push(`${new Date().toLocaleTimeString()}  ${where}: ${err?.message || err}`);
-  const box = $("#errbox");
-  if (box) {
-    box.hidden = false;
-    box.textContent = "Something went wrong — please send this to Claude:\n\n" + errors.join("\n");
-  }
+  renderErrBox();
   try { browser.storage.local.set({ reportErrors: errors.slice(-20) }); } catch { /* nothing to do */ }
+}
+
+// A failed daily report leaves no other trace: it happens while this page is closed.
+async function loadBackgroundErrors() {
+  try {
+    const { backgroundErrors = [] } = await browser.storage.local.get("backgroundErrors");
+    bgErrors = backgroundErrors;
+    renderErrBox();
+  } catch { /* nothing to do */ }
 }
 window.addEventListener("error", (e) => reportError("uncaught", e.error || e));
 window.addEventListener("unhandledrejection", (e) => reportError("promise", e.reason));
@@ -151,3 +172,4 @@ on("#opts", () => browser.runtime.openOptionsPage());
 on("#refresh", () => draw());
 
 draw().catch((e) => reportError("draw", e));
+loadBackgroundErrors();
