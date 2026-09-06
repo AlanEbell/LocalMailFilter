@@ -53,6 +53,12 @@ machine, and nothing is ever deleted.
 - A toolbar button on any open message: *Not spam — trust this sender* or *This is spam*
 - Shows the current verdict and which identity key trusting would allow-list
 - Works on messages that were never classified, so you can pre-trust a sender
+- **Right, but allow** — for a call that was correct on a sender you still want to see.
+  It records agreement, allow-lists the sender and teaches the model nothing, because
+  there is no error to learn from. Marking such a message Wrong instead would log a
+  false-positive correction against a judgement that was right, and count against
+  precision: a preference is not a report of a mistake, and only one of the two
+  belongs in the accuracy figure
 - Verdicts already reviewed can be changed in either direction from the report
 - Reversing a trust withdraws the allow-list entry it created
 

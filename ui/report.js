@@ -83,6 +83,13 @@ document.addEventListener("click", async (ev) => {
       await browser.runtime.sendMessage({ cmd: "confirm", headerMessageId: hmid });
       cell.innerHTML = '<span class="done">\u2713 agreed</span>' +
         ' <button class="chg" data-act="wrong">change</button>';
+    } else if (act === "allow") {
+      // The verdict was right and stays recorded as right; the sender is allow-listed
+      // so it stops being filed, and nothing is taught to the model.
+      if (m) await browser.runtime.sendMessage({ cmd: "allowAnyway", id: m.id, headerMessageId: hmid });
+      else await browser.runtime.sendMessage({ cmd: "confirm", headerMessageId: hmid });
+      cell.innerHTML = '<span class="done">\u2713 right, but allowed</span>' +
+        ' <button class="chg" data-act="untrust">change</button>';
     } else if (act === "untrust") {
       // Reversing a trust: withdraw the allow-list entry it created.
       if (m) await browser.runtime.sendMessage({ cmd: "markSpam", id: m.id, headerMessageId: hmid });

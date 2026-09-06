@@ -473,6 +473,43 @@ async function trustSender(msgId, headerMessageId) {
   return { key };
 }
 
+// "The call was right, but I still want this in my inbox."
+//
+// Marking such a message Wrong was the only way to stop it being filed, and that
+// conflated two different statements: it logged a false_positive correction teaching
+// the model a pattern it had actually judged correctly, and it counted against
+// precision. Reported accuracy fell every time a correct call was overruled by
+// preference rather than by error.
+//
+// So this records agreement, allow-lists the sender, and teaches the model nothing.
+// The verdict keeps its original category — the model was right and the record should
+// say so — and the message comes back to the inbox, which is the point of asking.
+async function allowAnyway(msgId, headerMessageId) {
+  const hdr = await browser.messages.get(msgId);
+  const full = await browser.messages.getFull(msgId);
+  const keys = identityKeys(hdr, full);
+  const rec = (await getVerdicts())[headerMessageId];
+
+  const key = await AL.allow(keys, { reason: "correct, but you want it through", sample: hdr.subject });
+  // Deliberately no addCorrection: there is no error here to learn from.
+  await updateVerdict(headerMessageId, {
+    userVerdict: "agree", allowKey: key, keys,
+    allowedAnyway: true, allowedAnywayAt: Date.now(),
+  });
+
+  const tags = (hdr.tags || []).filter((t) => t !== TAGS.business_spam.key && t !== TAGS.phishing.key);
+  await browser.messages.update(msgId, { tags }).catch(() => {});
+
+  const s = await getSettings();
+  if (hdr.folder?.name === s.folderName) {
+    const acct = (await browser.accounts.list(false)).find((a) => a.id === hdr.folder.accountId);
+    const inbox = acct ? await inboxOf(acct) : null;
+    if (inbox) await browser.messages.move([msgId], inbox.id).catch(() => {});
+  }
+  log("allowed anyway", key, "- verdict kept as", rec?.category || "unclassified");
+  return { key };
+}
+
 // The reverse: something the model let through that you consider spam.
 async function markSpam(msgId, headerMessageId) {
   const hdr = await browser.messages.get(msgId);
@@ -879,6 +916,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
       return { verdict: v, keys };
     }
     case "trustSender": return trustSender(msg.id, msg.headerMessageId);
+    case "allowAnyway": return allowAnyway(msg.id, msg.headerMessageId);
     case "markSpam":    return markSpam(msg.id, msg.headerMessageId);
     case "folders":    return foldersStatus();
     case "makeFolders": {
