@@ -619,25 +619,37 @@ async function repairAgreeBug() {
 // onMoved only fires for moves Thunderbird performs. A rescue done on your phone
 // arrives as a silent IMAP change, so periodically check what left the folder.
 
-// A message that was moved to Look At Later and is no longer there was presumably
-// rescued by hand on another device — a false positive worth learning from.
+// A message filed in Look At Later that is no longer there has to be accounted for,
+// but ABSENCE ALONE SAYS NOTHING. The live move handler already knew this — it
+// refuses to read a move into Trash or Junk as a rescue — and reconcile contradicted
+// it, treating everything it could not see as a false positive.
 //
-// That inference is only safe if the folder was read COMPLETELY. It previously was
-// not: a failed pagination call was caught and treated as the end of the list, and an
-// account whose folder could not be resolved was skipped outright. Either produced a
-// short list of present messages, and every message missing from it was then taught
-// as a false positive. One incomplete read during an IMAP resync mislearned 57
-// messages at once, allow-listed their senders, and pushed every genuine correction
-// out of the 40-entry history.
+// Deleting from Look At Later is the ordinary end of the workflow: you review what
+// was filed and throw the spam away. Reading that as "the classifier was wrong" turns
+// the strongest signal that it was RIGHT into a correction teaching the opposite. It
+// mislearned 57 messages that way on this profile, allow-listed their senders, and
+// pushed every genuine correction out of the forty-entry history.
 //
-// So this now refuses to guess. Any incomplete read aborts the sweep, and a number of
-// disappearances too large to be hand-rescues aborts it too and asks rather than acts.
+// So nothing is inferred from absence. The message is located before any conclusion
+// is drawn, and only a message positively found somewhere you would actually keep it
+// counts as a rescue. Gone, binned or unreadable all teach nothing.
 const RESCUE_CEILING = 3;          // more than a trickle is not someone tidying by hand
 const RESCUE_FRACTION = 0.1;       // ...and never more than a tenth of what we filed
 
+// null = nowhere to be found (deleted and expunged); undefined = could not tell.
+async function locateMessage(hmid) {
+  try {
+    const found = await browser.messages.query({ headerMessageId: hmid, autoPaginationTimeout: 0 });
+    return found?.messages?.[0]?.folder || null;
+  } catch { return undefined; }
+}
+
+const isBin = (folder) => !!folder?.specialUse?.some((u) => ["trash", "junk"].includes(u));
+
 async function reconcile() {
   const verdicts = await getVerdicts();
-  const expected = Object.entries(verdicts).filter(([, r]) => r.action === "moved" && !r.rescuedAt);
+  const expected = Object.entries(verdicts)
+    .filter(([, r]) => r.action === "moved" && !r.rescuedAt && !r.resolvedAt);
   if (!expected.length) return 0;
 
   const expectedFor = (accountId) => expected.filter(([, r]) => r.account === accountId).length;
@@ -671,22 +683,42 @@ async function reconcile() {
   const missing = expected.filter(([hmid]) => !present.has(hmid));
   if (!missing.length) return 0;
 
-  // A person rescuing mail on their phone does it a message at a time. A sudden
-  // crowd of them means the folder was read wrongly, not that the mail moved.
+  // Work out where each one actually went before concluding anything about it.
+  const rescued = [];
+  let binned = 0, unknown = 0;
+  for (const [hmid, rec] of missing) {
+    const folder = await locateMessage(hmid);
+    if (folder === undefined) { unknown++; continue; }        // could not tell: leave it alone
+    if (folder === null || isBin(folder)) {
+      // Deleted. That is agreement, not a correction — but recording agreement you did
+      // not state is still putting words in your mouth, so it only stops being asked
+      // about. It counts towards nothing.
+      await updateVerdict(hmid, { resolvedAt: Date.now(), resolvedVia: "deleted" });
+      binned++;
+      continue;
+    }
+    rescued.push([hmid, rec]);
+  }
+  if (binned) log("reconcile:", binned, "filed message(s) deleted — recorded as resolved, not as corrections");
+  if (unknown) log("reconcile:", unknown, "message(s) could not be located; left untouched");
+  if (!rescued.length) return 0;
+
+  // A person rescuing mail on their phone does it a message at a time. A crowd of them
+  // means the folder was read wrongly, not that the mail moved.
   const ceiling = Math.max(RESCUE_CEILING, Math.floor(expected.length * RESCUE_FRACTION));
-  if (missing.length > ceiling) {
+  if (rescued.length > ceiling) {
     await recordBackgroundError("reconcile",
-      new Error(`${missing.length} of ${expected.length} filed messages were not in the folder, ` +
-                `which is too many to be hand-rescues — nothing learned. If you really did move ` +
-                `them, mark them Wrong in the report and they will be learned properly.`));
+      new Error(`${rescued.length} of ${expected.length} filed messages turned up outside Look At Later, ` +
+                `which is too many to be hand-rescues — nothing learned. If you really did move them, ` +
+                `mark them Wrong in the report and they will be learned properly.`));
     notify("Mail Triage: nothing learned",
-      `${missing.length} filed messages were missing from Look At Later. That is more than ` +
-      `hand-rescuing explains, so nothing was recorded. See the report tab.`);
+      `${rescued.length} filed messages turned up elsewhere. That is more than hand-rescuing ` +
+      `explains, so nothing was recorded. See the report tab.`);
     return 0;
   }
 
   let learned = 0;
-  for (const [hmid, rec] of missing) {
+  for (const [hmid, rec] of rescued) {
     await updateVerdict(hmid, { userVerdict: "wrong", rescuedAt: Date.now(), rescuedVia: "reconcile" });
     await AL.addCorrection({ kind: "false_positive", was: rec.category, from: rec.from,
                              subject: rec.subject, via: "reconcile" });
