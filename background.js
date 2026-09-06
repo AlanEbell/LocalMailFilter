@@ -619,35 +619,126 @@ async function repairAgreeBug() {
 // onMoved only fires for moves Thunderbird performs. A rescue done on your phone
 // arrives as a silent IMAP change, so periodically check what left the folder.
 
+// A message that was moved to Look At Later and is no longer there was presumably
+// rescued by hand on another device — a false positive worth learning from.
+//
+// That inference is only safe if the folder was read COMPLETELY. It previously was
+// not: a failed pagination call was caught and treated as the end of the list, and an
+// account whose folder could not be resolved was skipped outright. Either produced a
+// short list of present messages, and every message missing from it was then taught
+// as a false positive. One incomplete read during an IMAP resync mislearned 57
+// messages at once, allow-listed their senders, and pushed every genuine correction
+// out of the 40-entry history.
+//
+// So this now refuses to guess. Any incomplete read aborts the sweep, and a number of
+// disappearances too large to be hand-rescues aborts it too and asks rather than acts.
+const RESCUE_CEILING = 3;          // more than a trickle is not someone tidying by hand
+const RESCUE_FRACTION = 0.1;       // ...and never more than a tenth of what we filed
+
 async function reconcile() {
-  const s = await getSettings();
   const verdicts = await getVerdicts();
   const expected = Object.entries(verdicts).filter(([, r]) => r.action === "moved" && !r.rescuedAt);
   if (!expected.length) return 0;
 
+  const expectedFor = (accountId) => expected.filter(([, r]) => r.account === accountId).length;
+
   const present = new Set();
   for (const acct of await watchedAccounts()) {
     const f = await triageFolderOf(acct, false);
-    if (!f) continue;
-    let page = await browser.messages.query({ folderId: f.id, autoPaginationTimeout: 0 });
-    while (page) {
-      for (const m of page.messages) present.add(m.headerMessageId);
-      page = page.id ? await browser.messages.continueList(page.id).catch(() => null) : null;
-      if (page && !page.messages.length) break;
+    if (!f) {
+      // Nothing filed there means nothing to verify; anything else means we cannot see
+      // where the mail went, which is not the same as the mail having been rescued.
+      if (!expectedFor(acct.id)) continue;
+      await recordBackgroundError("reconcile",
+        new Error(`no destination folder resolved for ${acct.name} — sweep abandoned, nothing learned`));
+      return 0;
+    }
+    try {
+      let page = await browser.messages.query({ folderId: f.id, autoPaginationTimeout: 0 });
+      while (page) {
+        for (const m of page.messages) present.add(m.headerMessageId);
+        if (!page.id) break;
+        page = await browser.messages.continueList(page.id);   // a throw must abort, not truncate
+        if (page && !page.messages.length) break;
+      }
+    } catch (e) {
+      await recordBackgroundError("reconcile",
+        new Error(`could not read ${acct.name}'s folder (${e?.message || e}) — sweep abandoned, nothing learned`));
+      return 0;
     }
   }
 
+  const missing = expected.filter(([hmid]) => !present.has(hmid));
+  if (!missing.length) return 0;
+
+  // A person rescuing mail on their phone does it a message at a time. A sudden
+  // crowd of them means the folder was read wrongly, not that the mail moved.
+  const ceiling = Math.max(RESCUE_CEILING, Math.floor(expected.length * RESCUE_FRACTION));
+  if (missing.length > ceiling) {
+    await recordBackgroundError("reconcile",
+      new Error(`${missing.length} of ${expected.length} filed messages were not in the folder, ` +
+                `which is too many to be hand-rescues — nothing learned. If you really did move ` +
+                `them, mark them Wrong in the report and they will be learned properly.`));
+    notify("Mail Triage: nothing learned",
+      `${missing.length} filed messages were missing from Look At Later. That is more than ` +
+      `hand-rescuing explains, so nothing was recorded. See the report tab.`);
+    return 0;
+  }
+
   let learned = 0;
-  for (const [hmid, rec] of expected) {
-    if (present.has(hmid)) continue;
-    // Gone from the folder and we did not move it out — you rescued it elsewhere.
+  for (const [hmid, rec] of missing) {
     await updateVerdict(hmid, { userVerdict: "wrong", rescuedAt: Date.now(), rescuedVia: "reconcile" });
-    await AL.addCorrection({ kind: "false_positive", was: rec.category, from: rec.from, subject: rec.subject });
+    await AL.addCorrection({ kind: "false_positive", was: rec.category, from: rec.from,
+                             subject: rec.subject, via: "reconcile" });
     if (rec.keys?.length) await AL.allow(rec.keys, { reason: "rescued on another device", sample: rec.subject });
     learned++;
   }
   if (learned) log("reconcile: learned", learned, "off-device rescue(s)");
   return learned;
+}
+
+// Repair for the reconcile defect above, which mislearned 57 messages on this
+// profile. Everything it did is identifiable: verdicts carry rescuedVia "reconcile",
+// the allow-list entries carry the reason it wrote, and the corrections match those
+// verdicts by sender and subject.
+//
+// The verdicts themselves are NOT deleted — the model's original call was fine, it
+// was only the review that was invented. Clearing the review restores them to
+// unreviewed, which is what they always were, and precision recovers because the
+// denominator stops counting reviews nobody made.
+async function repairReconcileBug() {
+  const verdicts = await getVerdicts();
+  const bogus = Object.entries(verdicts).filter(([, r]) => r.rescuedVia === "reconcile");
+
+  for (const [hmid] of bogus) {
+    await updateVerdict(hmid, { userVerdict: null, rescuedAt: null, rescuedVia: null });
+  }
+
+  // Allow-list: drop only the entries reconcile wrote. Senders you trusted by hand
+  // carry a different reason and are left alone.
+  const list = await AL.getAllow();
+  let droppedAllow = 0;
+  for (const [key, meta] of Object.entries(list)) {
+    if (meta?.reason === "rescued on another device") { await AL.revoke(key); droppedAllow++; }
+  }
+
+  // Corrections: drop the ones reconcile added. Older entries predate the `via` tag,
+  // so fall back to matching the verdicts it touched by sender and subject.
+  const victims = new Set(bogus.map(([, r]) => `${r.from}\u0000${r.subject}`));
+  const before = await AL.getCorrections();
+  const kept = before.filter((c) =>
+    c.via !== "reconcile" && !(c.kind === "false_positive" && victims.has(`${c.from}\u0000${c.subject}`)));
+  await browser.storage.local.set({ corrections: kept });
+
+  log(`repair: cleared ${bogus.length} invented review(s), dropped ${droppedAllow} allow-list ` +
+      `entr(ies) and ${before.length - kept.length} correction(s)`);
+  return {
+    clearedVerdicts: bogus.length,
+    droppedAllow,
+    droppedCorrections: before.length - kept.length,
+    correctionsLeft: kept.length,
+    allowLeft: Object.keys(await AL.getAllow()).length,
+  };
 }
 
 // ---- graduation --------------------------------------------------------
@@ -730,6 +821,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "sweepBacklog": return sweepBacklog();
     case "resetVerdicts": return resetVerdicts(msg.opts || {});
     case "repairAgreeBug": return repairAgreeBug();
+    case "repairReconcile": return repairReconcileBug();
     case "undoReset": {
       const s = await browser.storage.local.get("verdictsBackup");
       if (!s.verdictsBackup) return { restored: 0 };

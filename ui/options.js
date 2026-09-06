@@ -178,6 +178,16 @@ on("#repair", async () => {
   load();
 });
 
+on("#repairRec", async () => {
+  $("#recstat").textContent = "repairing…";
+  const r = await browser.runtime.sendMessage({ cmd: "repairReconcile" });
+  $("#recstat").textContent =
+    `cleared ${r.clearedVerdicts} invented review(s), dropped ${r.droppedAllow} allow-list ` +
+    `entr(ies) and ${r.droppedCorrections} correction(s); ${r.correctionsLeft} correction(s) ` +
+    `and ${r.allowLeft} allow-list entr(ies) kept`;
+  load();
+});
+
 on("#reset", async () => {
   const keepReviewed = $("#keepReviewed").checked;
   const st = await stats();
